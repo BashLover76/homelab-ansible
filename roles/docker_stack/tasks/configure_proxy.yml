@@ -49,6 +49,14 @@
     status_code: [200, 204]
   when: conflicting_redirection is not none
   delegate_to: nas
+  register: delete_redirection_result
+  failed_when: delete_redirection_result.status != 200 and delete_redirection_result.status != 204
+  ignore_errors: yes
+
+- name: Afficher le résultat de la suppression du Redirection Host
+  ansible.builtin.debug:
+    msg: "Résultat de la suppression du Redirection Host : {{ delete_redirection_result }}"
+  when: conflicting_redirection is not none
 
 - name: Récupérer la liste des Proxy Hosts existants dans NPM
   ansible.builtin.uri:

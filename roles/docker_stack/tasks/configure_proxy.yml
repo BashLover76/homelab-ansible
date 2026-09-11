@@ -92,6 +92,14 @@
     status_code: [200, 201]
   when: existing_proxy_host is none
   delegate_to: nas
+  register: create_proxy_host_result
+  failed_when: create_proxy_host_result.status != 200 and create_proxy_host_result.status != 201
+  ignore_errors: yes
+
+- name: Afficher le résultat de la création du Proxy Host
+  ansible.builtin.debug:
+    msg: "Résultat de la création du Proxy Host : {{ create_proxy_host_result }}"
+  when: existing_proxy_host is none
 
 - name: Mettre à jour le Proxy Host s'il existe déjà
   ansible.builtin.uri:

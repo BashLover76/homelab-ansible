@@ -1,0 +1,10 @@
+---
+service_domain: "npm.{{ basedomain }}"
+service_path: "/npm"
+service_port: 81
+service_ports:
+  - "80:80"
+  - "443:443"
+  - "81:81"
+service_envs:
+  DISABLE_IPV6: "true"

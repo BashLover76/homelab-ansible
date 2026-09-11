@@ -1,0 +1,7 @@
+---
+service_port: "{{ n8n_sandbox_port }}"
+service_envs:
+  N8N_SANDBOX_SERVICE_URL: "{{ n8n_sandbox_service_url }}"
+  SANDBOX_API_KEYS: "{{ sandbox_api_keys }}"
+  SANDBOX_RUNNER_API_KEY: "{{ sandbox_runner_api_key }}"
+  SANDBOX_RUNNER_REGISTRATION_TOKEN: "{{ sandbox_registration_token }}"

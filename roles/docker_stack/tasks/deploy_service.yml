@@ -1,0 +1,15 @@
+---
+- name: Déployer le fichier Docker Compose
+  ansible.builtin.template:
+    src: "{{ item.name }}-docker-compose.yml.j2"
+    dest: "{{ stacks_base_path }}/{{ item.name }}/docker-compose.yml"
+    owner: homelab
+    group: docker
+    mode: '0644'
+
+- name: Lancer ou mettre à jour la stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ stacks_base_path }}/{{ item.name }}"
+    state: present
+    pull: always
+    recreate: auto

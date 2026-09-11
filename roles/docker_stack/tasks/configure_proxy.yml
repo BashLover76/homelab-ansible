@@ -1,0 +1,113 @@
+---
+- name: Obtenir le token d'authentification NPM
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/tokens"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ npm_admin_email }}"
+      secret: "{{ npm_admin_password }}"
+    status_code: 200
+  register: npm_auth_shared
+  run_once: true
+  delegate_to: nas
+
+- name: Récupérer la liste des Access Lists existantes dans NPM
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/access-lists"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_access_lists
+  delegate_to: nas
+
+- name: Récupérer l'ID de l'Access List "Local Network Only"
+  ansible.builtin.set_fact:
+    local_access_list_id: "{{ (npm_access_lists.json | selectattr('name', 'equalto', 'Local Network Only') | map(attribute='id') | list | first) | default(0) }}"
+
+- name: Récupérer la liste des Redirection Hosts existants dans NPM
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/redirection-hosts"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_redirection_hosts_list
+  delegate_to: nas
+
+- name: Vérifier si un Redirection Host en conflit existe pour {{ service_domain }}
+  ansible.builtin.set_fact:
+    conflicting_redirection: "{{ (npm_redirection_hosts_list.json | selectattr('domain_names', 'contains', service_domain) | list | first | default(none)) }}"
+
+- name: Supprimer le Redirection Host en conflit pour libérer le domaine
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/redirection-hosts/{{ conflicting_redirection.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: [200, 204]
+  when: conflicting_redirection is not none
+  delegate_to: nas
+
+- name: Récupérer la liste des Proxy Hosts existants dans NPM
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_proxy_hosts_list
+  delegate_to: nas
+
+- name: Vérifier si le Proxy Host existe déjà pour {{ service_domain }}
+  ansible.builtin.set_fact:
+    existing_proxy_host: "{{ (npm_proxy_hosts_list.json | selectattr('domain_names', 'contains', service_domain) | list | first | default(none)) }}"
+
+- name: Créer le Proxy Host en mode interne strict (sans Let's Encrypt)
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ service_domain }}"
+      forward_scheme: "http"
+      forward_host: "{{ service_forward_host | default(ansible_host) }}"
+      forward_port: "{{ service_port }}"
+      certificate_id: 0
+      ssl_forced: false
+      access_list_id: "{{ local_access_list_id | int }}"
+      advanced_config: ""
+    status_code: [200, 201]
+  when: existing_proxy_host is none
+  delegate_to: nas
+
+- name: Mettre à jour le Proxy Host s'il existe déjà
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ existing_proxy_host.id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ service_domain }}"
+      forward_scheme: "http"
+      forward_host: "{{ service_forward_host | default(ansible_host) }}"
+      forward_port: "{{ service_port }}"
+      certificate_id: 0
+      ssl_forced: false
+      access_list_id: "{{ local_access_list_id | int }}"
+      advanced_config: ""
+    status_code: [200, 201]
+  when: existing_proxy_host is not none
+  delegate_to: nas
+
+- name: Ajouter le service au récapitulatif global
+  ansible.builtin.set_fact:
+    global_services_list: "{{ (hostvars['localhost'].get('global_services_list', []) + [{'name': service_domain.split('.')[0] | capitalize, 'sub_url': 'http://' + service_domain}]) | unique(attribute='name') }}"
+  delegate_to: localhost
+  delegate_facts: true

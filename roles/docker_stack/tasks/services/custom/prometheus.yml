@@ -1,0 +1,8 @@
+---
+- name: Déployer le fichier de configuration Prometheus additionnel
+  ansible.builtin.template:
+    src: "prometheus.yml.j2"
+    dest: "{{ stacks_base_path }}/prometheus/prometheus.yml"
+    owner: homelab
+    group: docker
+    mode: '0644'

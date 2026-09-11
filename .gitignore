@@ -1,0 +1,23 @@
+# --- Ansible Secrets & Inventory (Sensibles) ---
+.vault_password
+inventory.yml
+group_vars/*/vault
+group_vars/*/*.vault
+host_vars/*/vault
+
+# Si tu veux masquer l'intégralité de tes variables/inventaires (décommente si besoin) :
+group_vars/
+host_vars/
+inventory.yml
+
+# --- Aider History & Cache ---
+.aider*
+!.aider.conf.yml
+
+# --- OS / Editeurs ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

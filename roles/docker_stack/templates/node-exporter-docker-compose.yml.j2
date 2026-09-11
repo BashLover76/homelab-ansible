@@ -1,0 +1,15 @@
+name: node-exporter-stack
+
+services:
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "{{ node_exporter_port}}:9100"
+    pid: host
+    command:
+      - '--path.rootfs=/host'
+    volumes:
+      - /:/host:ro
+    profiles: ["{{ docker_profile }}"]

@@ -1,0 +1,86 @@
+name: n8n-workload-stack
+
+volumes:
+  sandbox-tls:
+
+services:
+  sandbox-certs:
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:latest
+    user: '0:0'
+    entrypoint: ['sh', '-c']
+    command:
+      - >
+        bootstrap-mtls.sh --out-dir /tls --api-san sandbox-api --control-san-prefix sandbox-runner && chown -R sandbox-api:sandbox-api /tls/api
+    volumes:
+      - sandbox-tls:/tls
+    environment:
+      - NUM_RUNNERS={{ n8n_num_runners }}
+    profiles: ["minisforum"]
+
+  sandbox-api:
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:latest
+    container_name: sandbox-api
+    restart: unless-stopped
+    depends_on:
+      sandbox-certs:
+        condition: service_completed_successfully
+    ports:
+      - "{{ n8n_sandbox_port }}:8080"
+      - "9091:9090"
+    environment:
+      - PORT={{ n8n_sandbox_port }}
+      - SANDBOX_API_KEYS={{ sandbox_api_keys }}
+      - SANDBOX_API_REGISTRATION_TOKEN={{ sandbox_registration_token }}
+      - SANDBOX_API_RUNNER_REGISTRATION_TOKEN={{ sandbox_registration_token }}
+      - SANDBOX_API_TLS_CERT_FILE=/tls/api/cert.pem
+      - SANDBOX_API_TLS_KEY_FILE=/tls/api/key.pem
+      - SANDBOX_API_TLS_CA_FILE=/tls/api/ca.pem
+      - SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CERT_FILE=/tls/api/control-grpc-api-client.crt
+      - SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_KEY_FILE=/tls/api/control-grpc-api-client.key
+      - SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CA_FILE=/tls/runner/ca.crt
+      - SANDBOX_API_GRPC_TLS_CERT_FILE=/tls/api/grpc-server.crt
+      - SANDBOX_API_GRPC_TLS_KEY_FILE=/tls/api/grpc-server.key
+      - SANDBOX_API_GRPC_TLS_CLIENT_CA_FILE=/tls/api/ca.crt
+    volumes:
+      - sandbox-tls:/tls:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles: ["minisforum"]
+
+  sandbox-runner-1:
+    image: ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:latest
+    container_name: sandbox-runner-1
+    restart: unless-stopped
+    privileged: true
+    depends_on:
+      sandbox-api:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        ln -sf /usr/sbin/iptables-legacy /usr/sbin/iptables &&
+        ln -sf /usr/sbin/ip6tables-legacy /usr/sbin/ip6tables &&
+        iptables -t filter -N DOCKER-USER 2>/dev/null || true &&
+        exec /usr/local/bin/start-runner
+    environment:
+      - SANDBOX_RUNNER_API_KEYS={{ sandbox_runner_api_key }}
+      - SANDBOX_RUNNER_REGISTRATION_TOKEN={{ sandbox_registration_token }}
+      - SANDBOX_RUNNER_API_GRPC_ADDR=sandbox-api:9090
+      - TLS_CA_FILE=/tls/runner/ca.crt
+      - TLS_CERT_FILE=/tls/runner/control-grpc-server.crt
+      - TLS_KEY_FILE=/tls/runner/control-grpc-server.key
+      - SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE=ghcr.io/n8n-io/n8n-sandbox-service-sandbox:latest
+      - SANDBOX_RUNNER_REGISTRATION_GRPC_CA_FILE=/tls/runner/ca.crt
+      - SANDBOX_RUNNER_REGISTRATION_GRPC_CERT_FILE=/tls/runner/grpc-client.crt
+      - SANDBOX_RUNNER_REGISTRATION_GRPC_KEY_FILE=/tls/runner/grpc-client.key
+      - SANDBOX_RUNNER_HTTP_BASE_URL={{ sandbox_runner_http_base_url }}
+      - SANDBOX_RUNNER_CONTROL_GRPC_TLS_CERT_FILE=/tls/runner/control-grpc-server.crt
+      - SANDBOX_RUNNER_CONTROL_GRPC_TLS_KEY_FILE=/tls/runner/control-grpc-server.key
+      - SANDBOX_RUNNER_CONTROL_GRPC_TLS_CLIENT_CA_FILE=/tls/runner/ca.crt
+    volumes:
+      - sandbox-tls:/tls:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    profiles: ["minisforum"]

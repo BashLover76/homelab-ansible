@@ -1,0 +1,4 @@
+---
+service_domain: "wud.{{ basedomain }}"
+service_path: "/wud"
+service_port: "{{ wud_port }}"

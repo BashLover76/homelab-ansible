@@ -1,0 +1,255 @@
+---
+- name: Tenter d'obtenir un token avec les identifiants du Vault
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/tokens"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ npm_admin_email }}"
+      secret: "{{ npm_admin_password }}"
+    status_code: [200, 400, 401, 404]
+  register: npm_token_test
+  run_once: true
+  delegate_to: nas
+
+- name: Créer le compte administrateur initial si non existant
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/users"
+    method: POST
+    body_format: json
+    body:
+      name: "Administrator"
+      nickname: "Admin"
+      email: "{{ npm_admin_email }}"
+      auth:
+        type: "password"
+        secret: "{{ npm_admin_password }}"
+    status_code: [200, 201, 400]
+  when: npm_token_test.status != 200
+  run_once: true
+  delegate_to: nas
+
+- name: Obtenir le token d'authentification final
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/tokens"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ npm_admin_email }}"
+      secret: "{{ npm_admin_password }}"
+    status_code: 200
+  register: npm_auth_shared
+  run_once: true
+  delegate_to: nas
+
+- name: Récupérer la liste des certificats existants dans NPM
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/certificates"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_certs_list
+  delegate_to: nas
+
+- name: Extraire l'ID du certificat racine s'il existe déjà
+  ansible.builtin.set_fact:
+    root_certificate_id: "{{ (npm_certs_list.json | selectattr('domain_names', 'contains', basedomain) | map(attribute='id') | list | first) | default(0) }}"
+
+- name: Demander un certificat Let's Encrypt pour le domaine racine (uniquement s'il n'existe pas)
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/certificates"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      provider: "letsencrypt"
+      nice_name: "{{ basedomain }}"
+      domain_names:
+        - "{{ basedomain }}"
+      meta:
+        dns_challenge: false
+    status_code: [200, 201, 400]
+    timeout: 120
+  when: root_certificate_id | int == 0
+  delegate_to: nas
+
+- name: Actualiser la liste des certificats après une éventuelle création
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/certificates"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_certs_list_refreshed
+  when: root_certificate_id | int == 0
+  delegate_to: nas
+
+- name: Mettre à jour l'ID du certificat racine
+  ansible.builtin.set_fact:
+    root_certificate_id: "{{ ( (npm_certs_list_refreshed.json | default(npm_certs_list.json)) | selectattr('domain_names', 'contains', basedomain) | map(attribute='id') | list | first) | default(0) }}"
+
+- name: Récupérer la liste des Access Lists existantes dans NPM
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/access-lists"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_access_lists
+  delegate_to: nas
+
+- name: Récupérer l'ID de l'Access List "Local Network Only"
+  ansible.builtin.set_fact:
+    local_access_list_id: "{{ (npm_access_lists.json | selectattr('name', 'equalto', 'Local Network Only') | map(attribute='id') | list | first) | default(0) }}"
+
+- name: Préparer l'objet location pour ce service
+  ansible.builtin.set_fact:
+    current_location:
+      path: "{{ service_path }}"
+      forward_scheme: "http"
+      forward_host: "{{ service_forward_host | default(ansible_host) }}"
+      forward_port: "{{ service_port }}"
+      advanced_config: ""
+
+- name: Récupérer la liste des Proxy Hosts existants
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_proxy_hosts_list
+  delegate_to: nas
+
+- name: Trouver le Proxy Host racine existant
+  ansible.builtin.set_fact:
+    root_proxy: "{{ (npm_proxy_hosts_list.json | selectattr('domain_names', 'contains', basedomain) | list | first | default(none)) }}"
+
+- name: Créer le Proxy Host racine s'il n'existe pas
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ basedomain }}"
+      forward_scheme: "http"
+      forward_host: "127.0.0.1"
+      forward_port: 80
+      certificate_id: "{{ root_certificate_id }}"
+      ssl_forced: true
+      access_list_id: "{{ local_access_list_id | int }}"
+      locations:
+        - "{{ current_location }}"
+    status_code: [200, 201]
+  when: root_proxy is none
+  delegate_to: nas
+
+- name: Extraire les locations existantes si le proxy racine existe
+  ansible.builtin.set_fact:
+    existing_locations: "{{ root_proxy.locations | default([]) }}"
+  when: root_proxy is not none
+
+- name: Mettre à jour la liste des locations (ajouter ou remplacer)
+  ansible.builtin.set_fact:
+    updated_locations: "{{ existing_locations | rejectattr('path', 'equalto', service_path) | list + [current_location] }}"
+  when: root_proxy is not none
+
+- name: Mettre à jour le Proxy Host racine avec la nouvelle location et l'access list
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ root_proxy.id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ basedomain }}"
+      forward_scheme: "http"
+      forward_host: "127.0.0.1"
+      forward_port: 80
+      certificate_id: "{{ root_certificate_id }}"
+      ssl_forced: true
+      access_list_id: "{{ local_access_list_id | int }}"
+      locations: "{{ updated_locations }}"
+    status_code: [200, 201]
+  when: root_proxy is not none
+  delegate_to: nas
+
+- name: Vérifier si un ancien Proxy Host en conflit existe pour le sous-domaine {{ service_domain }}
+  ansible.builtin.set_fact:
+    conflicting_proxy: "{{ (npm_proxy_hosts_list.json | rejectattr('domain_names', 'contains', basedomain) | selectattr('domain_names', 'contains', service_domain) | list | first | default(none)) }}"
+
+- name: Supprimer l'ancien Proxy Host en conflit pour libérer le sous-domaine
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ conflicting_proxy.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: [200, 204]
+  when: conflicting_proxy is not none
+  delegate_to: nas
+
+- name: Récupérer la liste des Redirection Hosts existants
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/redirection-hosts"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_redirection_hosts_list
+  delegate_to: nas
+
+- name: Vérifier si le Redirection Host existe déjà pour {{ service_domain }}
+  ansible.builtin.set_fact:
+    existing_redirection: "{{ (npm_redirection_hosts_list.json | selectattr('domain_names', 'contains', service_domain) | list | first | default(none)) }}"
+
+- name: Créer le Redirection Host pour le sous-domaine
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/redirection-hosts"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ service_domain }}"
+      forward_http_code: 301
+      forward_scheme: "https"
+      forward_domain_name: "{{ basedomain }}{{ service_path }}"
+      preserve_path: false
+      certificate_id: 0
+      ssl_forced: false
+    status_code: [200, 201]
+  when: existing_redirection is none
+  delegate_to: nas
+
+- name: Mettre à jour le Redirection Host s'il existe
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/redirection-hosts/{{ existing_redirection.id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ service_domain }}"
+      forward_http_code: 301
+      forward_scheme: "https"
+      forward_domain_name: "{{ basedomain }}{{ service_path }}"
+      preserve_path: false
+      certificate_id: 0
+      ssl_forced: false
+    status_code: [200, 201]
+  when: existing_redirection is not none
+  delegate_to: nas
+
+- name: Ajouter le service au récapitulatif global
+  ansible.builtin.set_fact:
+    global_services_list: "{{ (hostvars['localhost'].get('global_services_list', []) + [{'name': service_domain.split('.')[0] | capitalize, 'root_url': 'https://' + basedomain + service_path, 'sub_url': 'https://' + service_domain}]) | unique(attribute='name') }}"
+  delegate_to: localhost
+  delegate_facts: true

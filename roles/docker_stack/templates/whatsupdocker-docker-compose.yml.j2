@@ -1,0 +1,18 @@
+name: wud-stack
+
+services:
+  wud:
+    image: getwud/wud:latest
+    container_name: wud
+    restart: unless-stopped
+    ports:
+      - "{{ wud_port }}:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - WUD_WATCHER_NAS_SOCKET=/var/run/docker.sock
+      - WUD_WATCHER_NAS_WATCHBYDEFAULT=true
+      - WUD_WATCHER_MINISFORUM_HOST={{ minisforum_host }}
+      - WUD_WATCHER_MINISFORUM_PORT=2375
+      - WUD_WATCHER_MINISFORUM_WATCHBYDEFAULT=true
+    profiles: ["nas"]

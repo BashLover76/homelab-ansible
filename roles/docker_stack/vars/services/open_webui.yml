@@ -1,0 +1,4 @@
+---
+service_domain: "open-webui.{{ basedomain }}"
+service_path: "/open-webui"
+service_port: 8080

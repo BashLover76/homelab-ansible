@@ -1,0 +1,15 @@
+#name: ollama-stack
+#
+#volumes:
+#  ollama_data:
+#
+#services:
+#  ollama:
+#    image: ollama/ollama:latest
+#    container_name: ollama
+#    restart: unless-stopped
+#    ports:
+#      - "{{ ollama_port }}:11434"
+#    volumes:
+#      - ollama_data:/root/.ollama
+#    profiles: ["minisforum"]

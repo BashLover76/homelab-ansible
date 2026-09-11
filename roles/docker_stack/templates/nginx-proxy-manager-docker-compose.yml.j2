@@ -1,0 +1,17 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+name: nginx-proxy-manager-stack
+
+services:
+  app:
+    image: 'jc21/nginx-proxy-manager:latest'
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      {% for port in service_ports %}
+      - "{{ port }}"
+      {% endfor %}
+    volumes:
+      - "{{ stacks_base_path }}/nginx-proxy-manager/data:/data"
+      - "{{ stacks_base_path }}/nginx-proxy-manager/letsencrypt:/etc/letsencrypt"
+    environment:
+      DISABLE_IPV6: "${DISABLE_IPV6}"

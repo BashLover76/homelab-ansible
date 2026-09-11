@@ -1,0 +1,11 @@
+---
+- name: Créer le répertoire de base des stacks sur l'hôte cible
+  ansible.builtin.file:
+    path: "{{ stacks_base_path }}"
+    state: directory
+
+- name: Traiter dynamiquement chaque service de la liste de l'hôte
+  ansible.builtin.include_tasks: process_service.yml
+  loop: "{{ services_list }}"
+  loop_control:
+    loop_var: service_name

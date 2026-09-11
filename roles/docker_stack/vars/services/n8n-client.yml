@@ -1,0 +1,6 @@
+---
+service_port: "{{ n8n_port }}"
+service_path: "/n8n"
+service_envs:
+  N8N_WEBHOOK_URL: "{{ n8n_webhook_url }}"
+  N8N_SECURE_COOKIE: "{{ n8n_secure_cookie }}"

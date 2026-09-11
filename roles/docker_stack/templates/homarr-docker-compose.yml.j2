@@ -1,0 +1,18 @@
+name: homarr-stack
+
+volumes:
+  homarr-v2:
+
+services:
+  homarr:
+    container_name: homarr
+    image: ghcr.io/homarr-labs/homarr-test:v2
+    restart: unless-stopped
+    ports:
+      - "{{ homarr_port }}:7575"
+    volumes:
+       - homarr-v2:/appdata
+    environment:
+      - SECRET_ENCRYPTION_KEY={{ homarr_secret_key }}
+      - WORKSHOP_API_URL=https://v2.preview.homarr.dev/ # Only during the beta
+    profiles: ["nas"]

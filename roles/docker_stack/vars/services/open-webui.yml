@@ -1,0 +1,7 @@
+---
+service_domain: "open-webui.{{ basedomain }}"
+service_path: "/open-webui"
+service_port: "{{ open_webui_port }}"
+service_envs:
+  OLLAMA_BASE_URL: "{{ ollama_base_url }}"
+  OPENAI_API_KEY: "{{ openai_api_key }}"

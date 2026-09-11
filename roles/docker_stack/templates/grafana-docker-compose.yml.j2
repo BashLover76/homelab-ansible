@@ -1,0 +1,20 @@
+name: grafana-stack
+
+volumes:
+  grafana_data:
+
+services:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "{{ grafana_port }}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_ROOT_URL=https://{{ basedomain }}{{ service_path }}/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    profiles: ["nas"]

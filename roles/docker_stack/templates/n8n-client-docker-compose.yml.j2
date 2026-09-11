@@ -1,0 +1,23 @@
+name: n8n-client-stack
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "{{ n8n_port }}:5678"
+    environment:
+      - N8N_WEBHOOK_URL=https://{{ basedomain }}{{ service_path }}/
+      - VUE_APP_URL=https://{{ basedomain }}{{ service_path }}/
+      - N8N_EDITOR_BASE_URL=https://{{ basedomain }}{{ service_path }}/
+      - N8N_SECURE_COOKIE={{ n8n_secure_cookie }}
+      - OPENAI_API_KEY={{ openai_api_key }}
+      - N8N_ENABLED_MODULES=instance-ai
+      - N8N_INSTANCE_AI_SANDBOX_ENABLED=true
+      - N8N_SANDBOX_SERVICE_URL={{ n8n_sandbox_service_url }}
+      - N8N_SANDBOX_SERVICE_API_KEY={{ sandbox_api_keys }}
+    volumes:
+      - {{ n8n_volume_path }}:/home/node/.n8n
+      - /etc/hosts:/etc/hosts:ro
+    profiles: ["nas"]

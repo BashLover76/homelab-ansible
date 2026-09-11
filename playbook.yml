@@ -1,0 +1,36 @@
+---
+- name: Déploiement global des stacks du Homelab
+  hosts: all
+  become: true
+  pre_tasks:
+    - name: Initialiser le récapitulatif global sur localhost
+      ansible.builtin.set_fact:
+        global_services_list: []
+      delegate_to: localhost
+      run_once: true
+  roles:
+    - docker_stack
+
+- name: Récapitulatif des services déployés
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Générer le texte du récapitulatif
+      ansible.builtin.shell: |
+        echo "=================================================="
+        echo "🚀 RÉCAPITULATIF DES SERVICES HOMELAB"
+        echo "=================================================="
+        {% for s in hostvars['localhost'].get('global_services_list', []) | unique(attribute='name') %}
+        echo "- {{ s.name }} :"
+        echo "    📂 Via chemin racine : {{ s.root_url }}"
+        echo "    🔗 Via sous-domaine  : {{ s.sub_url }}"
+        {% endfor %}
+        echo "=================================================="
+      args:
+        executable: /bin/bash
+      register: recap_output
+      changed_when: false
+
+    - name: Afficher le récapitulatif proprement
+      ansible.builtin.debug:
+        var: recap_output.stdout_lines

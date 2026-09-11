@@ -1,0 +1,12 @@
+---
+- name: Vérifier l'état du conteneur via Docker Compose
+  ansible.builtin.command: "docker compose ps --status running --format '{% raw %}{{.Service}}{% endraw %}'"
+  args:
+    chdir: "{{ stacks_base_path }}/{{ item.name }}"
+  register: container_status
+  changed_when: false
+  failed_when: container_status.stdout | length == 0
+
+- name: Confirmer que le conteneur tourne
+  ansible.builtin.debug:
+    msg: "Le service {{ item.name }} est bien actif et en cours d'exécution."

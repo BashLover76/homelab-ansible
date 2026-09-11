@@ -1,0 +1,31 @@
+---
+# --- Réseau & Hôtes ---
+nas_ip: "NAS_IP"
+minisforum_host: "minisforum.lan"
+
+# --- Ports des services ---
+homarr_port: "7575"
+prometheus_port: "9090"
+grafana_port: "3000"
+wud_port: "3050"
+n8n_port: "5678"
+n8n_sandbox_port: "8080"
+open_webui_port: "3100"
+ollama_port: "11434"
+node_exporter_port: "9100"
+
+# --- URLs de communication inter-noeuds ---
+n8n_webhook_url: "http://{{ nas_ip }}:{{ n8n_port }}/"
+ollama_base_url: "http://{{ minisforum_host }}:{{ ollama_port }}"
+n8n_sandbox_service_url: "http://{{ minisforum_host }}:{{ n8n_sandbox_port }}"
+n8n_num_runners: 1
+sandbox_runner_http_base_url: "https://sandbox-runner-1:8080"
+
+# --- Sécurité & Tokens ---
+n8n_secure_cookie: "false"
+openai_api_key: "ollama"
+
+# --- Chemins des volumes (NAS) ---
+homarr_config_path: "/volume1/Docker/homarr/configs"
+homarr_data_path: "/volume1/Docker/homarr/data"
+n8n_volume_path: "/volume1/Docker/n8n"

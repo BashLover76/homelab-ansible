@@ -1,0 +1,6 @@
+---
+service_domain: "homarr.{{ basedomain }}"
+service_path: "/homarr"
+service_port: "{{ homarr_port }}"
+service_envs:
+  HOMARR_SECRET_KEY: "{{ homarr_secret_key }}"

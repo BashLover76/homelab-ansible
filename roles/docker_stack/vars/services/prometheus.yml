@@ -1,0 +1,4 @@
+---
+service_domain: "prometheus.{{ basedomain }}"
+service_path: "/prometheus"
+service_port: "{{ prometheus_port }}"

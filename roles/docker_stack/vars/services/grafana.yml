@@ -1,0 +1,4 @@
+---
+service_domain: "grafana.{{ basedomain }}"
+service_path: "/grafana"
+service_port: "{{ grafana_port }}"

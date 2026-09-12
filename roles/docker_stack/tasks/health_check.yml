@@ -5,7 +5,31 @@
     chdir: "{{ stacks_base_path }}/{{ item.name }}"
   register: container_status
   changed_when: false
-  failed_when: container_status.stdout | length == 0
+  failed_when: false
+
+- name: Afficher les conteneurs arrêtés avant échec
+  ansible.builtin.command: "docker compose ps -a"
+  args:
+    chdir: "{{ stacks_base_path }}/{{ item.name }}"
+  register: stopped_containers
+  changed_when: false
+  when: container_status.stdout | length == 0
+
+- name: Afficher les logs du service avant échec
+  ansible.builtin.command: "docker compose logs --tail=50"
+  args:
+    chdir: "{{ stacks_base_path }}/{{ item.name }}"
+  register: service_logs
+  changed_when: false
+  when: container_status.stdout | length == 0
+
+- name: Signaler l'échec avec le diagnostic Docker Compose
+  ansible.builtin.fail:
+    msg:
+      - "Aucun conteneur en cours d'exécution pour {{ item.name }}."
+      - "{{ stopped_containers.stdout }}"
+      - "{{ service_logs.stdout }}"
+  when: container_status.stdout | length == 0
 
 - name: Confirmer que le conteneur tourne
   ansible.builtin.debug:

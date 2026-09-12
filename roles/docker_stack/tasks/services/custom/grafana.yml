@@ -1,0 +1,36 @@
+---
+- name: Créer les répertoires de provisioning Grafana
+  ansible.builtin.file:
+    path: "{{ stacks_base_path }}/grafana/{{ item }}"
+    state: directory
+    owner: homelab
+    group: docker
+    mode: '0755'
+  loop:
+    - grafana/provisioning/datasources
+    - grafana/provisioning/dashboards
+    - grafana/dashboards
+
+- name: Provisionner la source Prometheus de Grafana
+  ansible.builtin.template:
+    src: grafana/provisioning/datasources/prometheus.yml.j2
+    dest: "{{ stacks_base_path }}/grafana/grafana/provisioning/datasources/prometheus.yml"
+    owner: homelab
+    group: docker
+    mode: '0644'
+
+- name: Provisionner le provider de dashboards Grafana
+  ansible.builtin.template:
+    src: grafana/provisioning/dashboards/default.yml.j2
+    dest: "{{ stacks_base_path }}/grafana/grafana/provisioning/dashboards/default.yml"
+    owner: homelab
+    group: docker
+    mode: '0644'
+
+- name: Installer le dashboard de santé des serveurs
+  ansible.builtin.template:
+    src: grafana/dashboards/server-health.json.j2
+    dest: "{{ stacks_base_path }}/grafana/grafana/dashboards/server-health.json"
+    owner: homelab
+    group: docker
+    mode: '0644'

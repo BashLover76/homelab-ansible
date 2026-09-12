@@ -2,3 +2,8 @@
 service_domain: "wud.{{ basedomain }}"
 service_path: "/wud"
 service_port: "{{ wud_port }}"
+service_forward_host: "{{ nas_ip }}"
+service_forward_port: "{{ wud_port }}"
+service_envs:
+  WUD_AUTH_ADMIN_USER: "{{ npm_admin_email }}"
+  WUD_AUTH_ADMIN_PASSWORD: "{{ homelab_admin_password }}"

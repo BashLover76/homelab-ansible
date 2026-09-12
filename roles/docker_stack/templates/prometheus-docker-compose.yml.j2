@@ -17,5 +17,5 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--web.route-prefix={{ service_path }}'
-      - '--web.external-url=https://{{ basedomain }}{{ service_path }}'
+      - '--web.external-url=http://{{ service_domain }}'
     profiles: ["nas"]

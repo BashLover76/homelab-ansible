@@ -1,4 +1,15 @@
 ---
+- name: Attendre que l'API NPM soit prête après le démarrage
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/schema"
+    method: GET
+    status_code: 200
+  register: npm_api_ready
+  retries: 30
+  delay: 5
+  until: npm_api_ready.status | default(-1) == 200
+  delegate_to: nas
+
 - name: Obtenir le token d'authentification NPM
   ansible.builtin.uri:
     url: "http://127.0.0.1:81/api/tokens"
@@ -6,7 +17,37 @@
     body_format: json
     body:
       identity: "{{ npm_admin_email }}"
-      secret: "{{ npm_admin_password }}"
+      secret: "{{ homelab_admin_password }}"
+    status_code: [200, 400, 401, 404]
+  register: npm_auth_shared
+  run_once: true
+  delegate_to: nas
+
+- name: Créer le compte administrateur NPM si nécessaire
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/users"
+    method: POST
+    body_format: json
+    body:
+      name: "Administrator"
+      nickname: "Admin"
+      email: "{{ npm_admin_email }}"
+      auth:
+        type: "password"
+        secret: "{{ homelab_admin_password }}"
+    status_code: [200, 201, 400]
+  when: npm_auth_shared.status != 200
+  run_once: true
+  delegate_to: nas
+
+- name: Obtenir le token NPM après initialisation éventuelle
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/tokens"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ npm_admin_email }}"
+      secret: "{{ homelab_admin_password }}"
     status_code: 200
   register: npm_auth_shared
   run_once: true
@@ -51,7 +92,7 @@
   delegate_to: nas
   register: delete_redirection_result
   failed_when: delete_redirection_result.status != 200 and delete_redirection_result.status != 204
-  ignore_errors: yes
+  ignore_errors: true
 
 - name: Afficher le résultat de la suppression du Redirection Host
   ansible.builtin.debug:
@@ -68,11 +109,136 @@
   register: npm_proxy_hosts_list
   delegate_to: nas
 
-- name: Vérifier si le Proxy Host existe déjà pour {{ service_domain }}
+- name: Repérer un ancien Proxy Host direct du service
   ansible.builtin.set_fact:
-    existing_proxy_host: "{{ (npm_proxy_hosts_list.json | selectattr('domain_names', 'contains', service_domain) | list | first | default(none)) }}"
+    conflicting_proxy: "{{ (npm_proxy_hosts_list.json | rejectattr('domain_names', 'contains', basedomain) | selectattr('domain_names', 'contains', service_domain) | list | first | default(none)) }}"
 
-- name: Créer le Proxy Host en mode interne strict (sans Let's Encrypt)
+- name: Supprimer l'ancien Proxy Host direct pour libérer le sous-domaine
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ conflicting_proxy.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: [200, 204]
+  when: conflicting_proxy is not none
+  delegate_to: nas
+
+- name: Actualiser la liste des Proxy Hosts après suppression
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    status_code: 200
+  register: npm_proxy_hosts_refreshed
+  when: conflicting_proxy is not none
+  delegate_to: nas
+
+- name: Utiliser la liste actualisée des Proxy Hosts
+  ansible.builtin.set_fact:
+    npm_proxy_hosts_list: "{{ npm_proxy_hosts_refreshed if conflicting_proxy is not none else npm_proxy_hosts_list }}"
+
+- name: Préparer la location du service sur le Proxy Host racine
+  ansible.builtin.set_fact:
+    current_location:
+      path: "{{ service_path }}"
+      forward_scheme: "http"
+      forward_host: "{{ service_forward_host | default(nas_ip) }}"
+      forward_port: "{{ service_forward_port | default(service_port) | int }}"
+      advanced_config: ""
+
+- name: Rechercher le Proxy Host racine
+  ansible.builtin.set_fact:
+    root_proxy: "{{ (npm_proxy_hosts_list.json | selectattr('domain_names', 'contains', basedomain) | list | first | default(none)) }}"
+
+- name: Créer le Proxy Host racine avec la location du service
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ basedomain }}"
+      forward_scheme: "http"
+      forward_host: "{{ nas_ip }}"
+      forward_port: 80
+      certificate_id: 0
+      ssl_forced: false
+      access_list_id: "{{ local_access_list_id | int }}"
+      caching_enabled: false
+      block_exploits: true
+      allow_websocket_upgrade: true
+      http2_support: false
+      hsts_enabled: false
+      hsts_subdomains: false
+      trust_forwarded_proto: false
+      enabled: true
+      locations:
+        - "{{ current_location }}"
+      advanced_config: ""
+      meta: {}
+    status_code: [200, 201]
+  when: root_proxy is none
+  delegate_to: nas
+
+- name: Initialiser la liste des locations normalisées
+  ansible.builtin.set_fact:
+    updated_locations: []
+  when: root_proxy is not none
+
+- name: Recréer les locations existantes sans les champs internes NPM
+  ansible.builtin.set_fact:
+    updated_locations: "{{ updated_locations + [{'path': existing_location.path, 'forward_scheme': existing_location.forward_scheme, 'forward_host': existing_location.forward_host, 'forward_port': existing_location.forward_port | int, 'advanced_config': existing_location.advanced_config | default('')}] }}"
+  loop: "{{ root_proxy.locations | default([]) }}"
+  loop_control:
+    loop_var: existing_location
+  when:
+    - root_proxy is not none
+    - existing_location.path != service_path
+
+- name: Ajouter la location du service
+  ansible.builtin.set_fact:
+    updated_locations: "{{ updated_locations + [current_location] }}"
+  when: root_proxy is not none
+
+- name: Mettre à jour le Proxy Host racine avec la location du service
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ root_proxy.id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
+    body_format: json
+    body:
+      domain_names:
+        - "{{ basedomain }}"
+      forward_scheme: "http"
+      forward_host: "{{ nas_ip }}"
+      forward_port: 80
+      certificate_id: 0
+      ssl_forced: false
+      access_list_id: "{{ local_access_list_id | int }}"
+      caching_enabled: false
+      block_exploits: true
+      allow_websocket_upgrade: true
+      http2_support: false
+      hsts_enabled: false
+      hsts_subdomains: false
+      trust_forwarded_proto: false
+      enabled: true
+      locations: "{{ updated_locations }}"
+      advanced_config: ""
+      meta: {}
+    status_code: [200, 201]
+  when: root_proxy is not none
+  delegate_to: nas
+
+- name: Rechercher le Proxy Host du sous-domaine
+  ansible.builtin.set_fact:
+    service_proxy: "{{ (npm_proxy_hosts_list.json | rejectattr('domain_names', 'contains', basedomain) | selectattr('domain_names', 'contains', service_domain) | list | first | default(none)) }}"
+
+- name: Créer le Proxy Host du sous-domaine
   ansible.builtin.uri:
     url: "http://127.0.0.1:81/api/nginx/proxy-hosts"
     method: POST
@@ -83,27 +249,29 @@
       domain_names:
         - "{{ service_domain }}"
       forward_scheme: "http"
-      forward_host: "{{ service_forward_host | default(ansible_host) }}"
-      forward_port: "{{ service_port }}"
+      forward_host: "{{ service_forward_host | default(nas_ip) }}"
+      forward_port: "{{ service_forward_port | default(service_port) | int }}"
       certificate_id: 0
       ssl_forced: false
       access_list_id: "{{ local_access_list_id | int }}"
+      caching_enabled: false
+      block_exploits: true
+      allow_websocket_upgrade: true
+      http2_support: false
+      hsts_enabled: false
+      hsts_subdomains: false
+      trust_forwarded_proto: false
+      enabled: true
+      locations: []
       advanced_config: ""
+      meta: {}
     status_code: [200, 201]
-  when: existing_proxy_host is none
+  when: service_proxy is none
   delegate_to: nas
-  register: create_proxy_host_result
-  failed_when: create_proxy_host_result.status != 200 and create_proxy_host_result.status != 201
-  ignore_errors: yes
 
-- name: Afficher le résultat de la création du Proxy Host
-  ansible.builtin.debug:
-    msg: "Résultat de la création du Proxy Host : {{ create_proxy_host_result }}"
-  when: existing_proxy_host is none
-
-- name: Mettre à jour le Proxy Host s'il existe déjà
+- name: Mettre à jour le Proxy Host du sous-domaine
   ansible.builtin.uri:
-    url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ existing_proxy_host.id }}"
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ service_proxy.id }}"
     method: PUT
     headers:
       Authorization: "Bearer {{ hostvars['nas'].npm_auth_shared.json.token }}"
@@ -112,18 +280,28 @@
       domain_names:
         - "{{ service_domain }}"
       forward_scheme: "http"
-      forward_host: "{{ service_forward_host | default(ansible_host) }}"
-      forward_port: "{{ service_port }}"
+      forward_host: "{{ service_forward_host | default(nas_ip) }}"
+      forward_port: "{{ service_forward_port | default(service_port) | int }}"
       certificate_id: 0
       ssl_forced: false
       access_list_id: "{{ local_access_list_id | int }}"
+      caching_enabled: false
+      block_exploits: true
+      allow_websocket_upgrade: true
+      http2_support: false
+      hsts_enabled: false
+      hsts_subdomains: false
+      trust_forwarded_proto: false
+      enabled: true
+      locations: []
       advanced_config: ""
+      meta: {}
     status_code: [200, 201]
-  when: existing_proxy_host is not none
+  when: service_proxy is not none
   delegate_to: nas
 
 - name: Ajouter le service au récapitulatif global
   ansible.builtin.set_fact:
-    global_services_list: "{{ (hostvars['localhost'].get('global_services_list', []) + [{'name': service_domain.split('.')[0] | capitalize, 'sub_url': 'http://' + service_domain}]) | unique(attribute='name') }}"
+    global_services_list: "{{ (hostvars['localhost'].get('global_services_list', []) + [{'name': service_domain.split('.')[0] | capitalize, 'root_url': 'http://' + basedomain + service_path, 'sub_url': 'http://' + service_domain}]) | unique(attribute='name') }}"
   delegate_to: localhost
   delegate_facts: true

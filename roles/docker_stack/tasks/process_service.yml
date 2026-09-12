@@ -2,11 +2,12 @@
 - name: Charger les variables spécifiques du service
   ansible.builtin.include_vars:
     file: "{{ role_path }}/vars/services/{{ service_name }}.yml"
+    name: service_vars
 
 
 - name: Debug du domaine du service
   ansible.builtin.debug:
-    msg: "Domaine résolu : {{ service_domain }}"
+    msg: "Domaine résolu : {{ service_vars.service_domain | default('non configuré') }}"
 
 - name: Créer le dossier du service
   ansible.builtin.file:
@@ -17,11 +18,9 @@
   ansible.builtin.copy:
     content: |
       COMPOSE_PROFILES={{ docker_profile }}
-      {% if service_envs is defined %}
-      {% for key, value in service_envs.items() %}
+      {% for key, value in (service_vars.service_envs | default({})).items() %}
       {{ key }}={{ value }}
       {% endfor %}
-      {% endif %}
     dest: "{{ stacks_base_path }}/{{ service_name }}/.env"
     owner: homelab
     group: docker
@@ -35,6 +34,12 @@
   ansible.builtin.include_tasks: deploy_service.yml
   vars:
     item: { name: "{{ service_name }}" }
+    service_ports: "{{ service_vars.service_ports | default([]) }}"
+    service_port: "{{ service_vars.service_port | default('') }}"
+    service_path: "{{ service_vars.service_path | default('') }}"
+    service_domain: "{{ service_vars.service_domain | default('') }}"
+    service_forward_host: "{{ service_vars.service_forward_host | default(nas_ip) }}"
+    service_forward_port: "{{ service_vars.service_forward_port | default(service_vars.service_port | default('')) }}"
 
 - name: Valider la santé du conteneur
   ansible.builtin.include_tasks: health_check.yml
@@ -44,5 +49,12 @@
 - name: Configurer automatiquement le Proxy Host NPM si requis
   ansible.builtin.include_tasks: configure_proxy.yml
   when: 
-    - service_domain is defined
+    - service_vars.service_domain is defined
+    - service_vars.service_path is defined
     - inventory_hostname == 'nas'
+  vars:
+    service_domain: "{{ service_vars.service_domain }}"
+    service_path: "{{ service_vars.service_path }}"
+    service_port: "{{ service_vars.service_port }}"
+    service_forward_host: "{{ service_vars.service_forward_host | default(nas_ip) }}"
+    service_forward_port: "{{ service_vars.service_forward_port | default(service_vars.service_port) }}"

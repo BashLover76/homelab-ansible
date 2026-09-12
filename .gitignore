@@ -4,6 +4,7 @@ inventory.yml
 group_vars/*/vault
 group_vars/*/*.vault
 host_vars/*/vault
+ansible.cfg
 
 # Si tu veux masquer l'intégralité de tes variables/inventaires (décommente si besoin) :
 group_vars/

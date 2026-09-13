@@ -40,11 +40,17 @@
     service_domain: "{{ service_vars.service_domain | default('') }}"
     service_forward_host: "{{ service_vars.service_forward_host | default(nas_ip) }}"
     service_forward_port: "{{ service_vars.service_forward_port | default(service_vars.service_port | default('')) }}"
+    prometheus_route_prefix: "{{ service_vars.prometheus_route_prefix | default('') }}"
+    prometheus_external_url: "{{ service_vars.prometheus_external_url | default('') }}"
 
 - name: Valider la santé du conteneur
   ansible.builtin.include_tasks: health_check.yml
   vars:
     item: { name: "{{ service_name }}" }
+
+- name: Exécuter les actions post-déploiement spécifiques optionnelles
+  ansible.builtin.include_tasks: "services/post_deploy/{{ service_name }}.yml"
+  when: lookup('fileglob', 'services/post_deploy/' ~ service_name ~ '.yml') | length > 0
 
 - name: Configurer automatiquement le Proxy Host NPM si requis
   ansible.builtin.include_tasks: configure_proxy.yml

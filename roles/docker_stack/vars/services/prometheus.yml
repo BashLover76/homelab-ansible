@@ -2,3 +2,5 @@
 service_domain: "prometheus.{{ basedomain }}"
 service_path: "/prometheus"
 service_port: "{{ prometheus_port }}"
+prometheus_route_prefix: "/"
+prometheus_external_url: "http://{{ service_domain }}"

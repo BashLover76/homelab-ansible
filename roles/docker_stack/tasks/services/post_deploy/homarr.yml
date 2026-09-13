@@ -1,0 +1,23 @@
+---
+- name: Définir le mot de passe de l'administrateur Homarr
+  ansible.builtin.command:
+    argv:
+      - timeout
+      - 20s
+      - docker
+      - exec
+      - -e
+      - AUTH_PROVIDERS=credentials
+      - homarr
+      - homarr
+      - users
+      - update-password
+      - -u
+      - homelab
+      - -p
+      - "{{ homelab_admin_password }}"
+  register: homarr_admin_password_update
+  changed_when: homarr_admin_password_update.rc == 0 or 'context canceled' in homarr_admin_password_update.stderr
+  failed_when: homarr_admin_password_update.rc not in [0, 1, 124] or (homarr_admin_password_update.rc == 1 and 'context canceled' not in homarr_admin_password_update.stderr)
+  no_log: true
+

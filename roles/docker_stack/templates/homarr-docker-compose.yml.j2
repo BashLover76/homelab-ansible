@@ -14,5 +14,6 @@ services:
        - homarr-v2:/appdata
     environment:
       - SECRET_ENCRYPTION_KEY={{ homarr_secret_key }}
+      - AUTH_PROVIDERS=credentials
       - WORKSHOP_API_URL=https://v2.preview.homarr.dev/ # Only during the beta
     profiles: ["nas"]

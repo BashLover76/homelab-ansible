@@ -15,7 +15,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_USER=homelab
       - GF_SECURITY_ADMIN_PASSWORD={{ homelab_admin_password }}
       - GF_SERVER_ROOT_URL=http://{{ service_domain }}/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true

@@ -1,0 +1,37 @@
+---
+- name: Auditer les services existants sans les modifier
+  hosts: nas
+  gather_facts: false
+  tasks:
+    - name: Vérifier les endpoints locaux
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        timeout: 10
+        status_code: [200, 401, 403, 404]
+      loop:
+        - http://NAS_IP:8123/api/
+        - http://NAS_IP:8030/control/status
+        - http://MINISFORUM_IP:11434/api/tags
+        - http://MINISFORUM_IP:3100/health
+      register: endpoints
+      failed_when: false
+    - name: Lire les métriques WUD sans divulguer les identifiants
+      ansible.builtin.uri:
+        url: "http://{{ item }}/metrics"
+        url_username: "{{ npm_admin_email }}"
+        url_password: "{{ homelab_admin_password }}"
+        force_basic_auth: true
+        return_content: true
+        timeout: 10
+      loop:
+        - NAS_IP:3050
+        - MINISFORUM_IP:3051
+      register: wud_audit
+      failed_when: false
+      no_log: true
+    - name: Résumer les métriques WUD disponibles
+      ansible.builtin.debug:
+        msg: "{{ item.item }} HTTP {{ item.status | default('inaccessible') }}; {{ (item.content | default('')).split('\n') | select('match', '^wud_containers') | list }}"
+      loop: "{{ wud_audit.results }}"
+      loop_control:
+        label: "{{ item.item }}"

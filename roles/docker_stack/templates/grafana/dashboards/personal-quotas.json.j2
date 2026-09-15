@@ -1,0 +1,155 @@
+{% raw %}
+{
+  "uid": "homelab-personal-quotas",
+  "title": "Homelab - Quotas personnels",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Codex — quota consommé (%)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "homelab_quota_used_percent{provider=\"codex\"}",
+          "legendFormat": "{{bucket}} / {{window}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Collecte des quotas — 1 = disponible",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "homelab_quota_collection_success",
+          "legendFormat": "{{provider}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Codex — prochaine réinitialisation",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "homelab_quota_reset_timestamp_seconds * 1000",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Copilot — consommation du mois civil, par modèle et unité",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "homelab_copilot_month_usage",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "text",
+      "title": "Périmètre des mesures",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Codex : limites du compte personnel via l’API officielle du client local, collectées toutes les 5 minutes. Ce ne sont pas des dépenses API OpenAI.\n\nCopilot : consommation du mois civil via l’API GitHub personnelle, collectée chaque heure. Nécessite `github_billing_token` dans le vault avec permission utilisateur **Plan: read**. Aucun quota restant n’est inventé : l’allocation contractuelle n’est pas fournie par cet endpoint.\n\nUne collecte à **0** signifie indisponible, jamais un quota gratuit ou illimité."
+      }
+    }
+  ]
+}
+{% endraw %}

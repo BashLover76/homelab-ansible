@@ -17,6 +17,8 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=homelab
       - GF_SECURITY_ADMIN_PASSWORD={{ homelab_admin_password }}
+      # Permet l'affichage du tableau Grafana dans le widget iFrame Homarr.
+      - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_SERVER_ROOT_URL=http://{{ service_domain }}/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
     profiles: ["nas"]

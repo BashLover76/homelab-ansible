@@ -1,0 +1,24 @@
+groups:
+  - name: homelab
+    rules:
+      - alert: ContainerUpdateAvailable
+        expr: wud_containers{update_available="true"} == 1
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "{% raw %}Mise à jour disponible : {{ $labels.name }} sur {{ $labels.server }}{% endraw %}"
+      - alert: MonitoringTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{% raw %}Collecte indisponible : {{ $labels.instance }}{% endraw %}"
+      - alert: HostDiskAlmostFull
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes < 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{% raw %}Moins de 10 % disponibles : {{ $labels.instance }} {{ $labels.mountpoint }}{% endraw %}"

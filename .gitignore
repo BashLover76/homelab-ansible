@@ -4,7 +4,7 @@ inventory.yml
 group_vars/*/vault
 group_vars/*/*.vault
 host_vars/*/vault
-ansible.cfg
+# ansible.cfg est versionné ; seuls les secrets qu'il référence sont ignorés.
 
 # Si tu veux masquer l'intégralité de tes variables/inventaires (décommente si besoin) :
 group_vars/
@@ -22,3 +22,5 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+.local-pki/
+artifacts/

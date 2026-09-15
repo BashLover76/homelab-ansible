@@ -1,0 +1,26 @@
+---
+- name: Réconcilier les sous-domaines locaux existants et externes
+  hosts: nas
+  gather_facts: false
+  vars:
+    proxy_services:
+      - {name: grafana, host: 'NAS_IP', port: 3000}
+      - {name: homarr, host: 'NAS_IP', port: 7575}
+      - {name: prometheus, host: 'NAS_IP', port: 9090}
+      - {name: wud, host: 'NAS_IP', port: 3050}
+      - {name: npm, host: 'NAS_IP', port: 81}
+      - {name: open-webui, host: 'MINISFORUM_IP', port: 3100}
+      - {name: adguard, host: 'NAS_IP', port: 8030}
+      - {name: homeassistant, host: 'NAS_IP', port: 8123}
+      - {name: pihole, host: 'NAS_IP', port: 8082}
+      - {name: alertmanager, host: 'NAS_IP', port: 9093}
+  tasks:
+    - name: Appliquer le proxy géré
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/docker_stack/tasks/configure_proxy_managed.yml"
+      loop: "{{ proxy_services }}"
+      loop_control:
+        loop_var: proxy_service
+      vars:
+        service_domain: "{{ proxy_service.name }}.PUBLIC_DOMAIN"
+        service_forward_host: "{{ proxy_service.host }}"
+        service_forward_port: "{{ proxy_service.port }}"

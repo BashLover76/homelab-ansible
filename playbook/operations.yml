@@ -1,0 +1,19 @@
+---
+# Scoped deployment: -e '{"selected_services":["grafana"]}' --limit nas
+- name: Déployer uniquement les services sélectionnés
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: false
+  vars:
+    configure_npm: false
+  tasks:
+    - name: Exiger une sélection explicite
+      ansible.builtin.assert:
+        that:
+          - selected_services is defined
+          - selected_services | length > 0
+    - name: Déployer les services sélectionnés avec le rôle commun
+      ansible.builtin.include_role:
+        name: docker_stack
+      vars:
+        services_list: "{{ selected_services }}"

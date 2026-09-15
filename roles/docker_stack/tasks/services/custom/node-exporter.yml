@@ -1,0 +1,8 @@
+---
+- name: Créer le dossier des métriques textfile
+  ansible.builtin.file:
+    path: '{{ stacks_base_path }}/node-exporter/textfile'
+    state: directory
+    owner: homelab
+    group: docker
+    mode: '0755'

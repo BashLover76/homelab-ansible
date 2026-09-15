@@ -1,0 +1,74 @@
+---
+- name: Authentifier NPM pour le sous-domaine géré
+  ansible.builtin.uri:
+    url: http://127.0.0.1:81/api/tokens
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ npm_admin_email }}"
+      secret: "{{ homelab_admin_password }}"
+    timeout: 10
+  register: managed_npm_login
+  delegate_to: nas
+  no_log: true
+- name: Lire les sous-domaines NPM
+  ansible.builtin.uri:
+    url: http://127.0.0.1:81/api/nginx/proxy-hosts
+    headers:
+      Authorization: "Bearer {{ managed_npm_login.json.token }}"
+    timeout: 10
+  register: managed_npm_hosts
+  delegate_to: nas
+  no_log: true
+- name: Lire les certificats NPM
+  ansible.builtin.uri:
+    url: http://127.0.0.1:81/api/nginx/certificates
+    headers:
+      Authorization: "Bearer {{ managed_npm_login.json.token }}"
+    timeout: 10
+  register: managed_npm_certs
+  delegate_to: nas
+  no_log: true
+- name: Identifier le sous-domaine et son certificat
+  ansible.builtin.set_fact:
+    managed_proxy: "{{ managed_npm_hosts.json | selectattr('domain_names', 'contains', service_domain) | list | first | default({}) }}"
+    managed_certificate_id: "{{ managed_npm_certs.json | selectattr('nice_name', 'equalto', 'Ansible Homelab Local TLS') | map(attribute='id') | first | default(0) }}"
+  no_log: true
+- name: Définir uniquement les champs gérés
+  ansible.builtin.set_fact:
+    managed_proxy_fields:
+      domain_names: ['{{ service_domain }}']
+      forward_scheme: http
+      forward_host: "{{ service_forward_host }}"
+      forward_port: "{{ service_forward_port | int }}"
+      certificate_id: "{{ managed_certificate_id | int if managed_certificate_id | int > 0 else managed_proxy.certificate_id | default(0) }}"
+      ssl_forced: "{{ managed_proxy.ssl_forced | default(false) }}"
+      access_list_id: "{{ managed_proxy.access_list_id | default(0) }}"
+      caching_enabled: "{{ managed_proxy.caching_enabled | default(false) }}"
+      block_exploits: true
+      allow_websocket_upgrade: true
+      http2_support: "{{ managed_certificate_id | int > 0 }}"
+      hsts_enabled: "{{ managed_proxy.hsts_enabled | default(false) }}"
+      hsts_subdomains: "{{ managed_proxy.hsts_subdomains | default(false) }}"
+      enabled: true
+      locations: "{{ managed_proxy.locations | default([]) }}"
+      advanced_config: "{{ managed_proxy.advanced_config | default('') }}"
+      meta: "{{ managed_proxy.meta | default({}) }}"
+- name: Comparer les champs au proxy existant
+  ansible.builtin.set_fact:
+    managed_proxy_diff: "{{ managed_proxy_fields | dict2items | difference(managed_proxy | dict2items) }}"
+  no_log: true
+- name: Réconcilier le sous-domaine uniquement si nécessaire
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:81/api/nginx/proxy-hosts{{ '/' ~ managed_proxy.id if managed_proxy.id is defined else '' }}"
+    method: "{{ 'PUT' if managed_proxy.id is defined else 'POST' }}"
+    headers:
+      Authorization: "Bearer {{ managed_npm_login.json.token }}"
+    body_format: json
+    body: "{{ managed_proxy_fields }}"
+    status_code: [200, 201]
+    timeout: 30
+  when: managed_proxy_diff | length > 0
+  changed_when: true
+  delegate_to: nas
+  no_log: true

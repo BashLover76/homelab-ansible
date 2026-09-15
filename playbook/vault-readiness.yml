@@ -1,0 +1,16 @@
+---
+- name: Vérifier la présence des paramètres sans exposer les secrets
+  hosts: nas
+  gather_facts: false
+  tasks:
+    - name: Afficher uniquement la présence des variables attendues
+      ansible.builtin.debug:
+        msg:
+          alert_email_enabled: "{{ alert_email_enabled | default(false) | bool }}"
+          smtp_smarthost_present: "{{ smtp_smarthost | default('') | length > 0 }}"
+          smtp_from_present: "{{ smtp_from | default('') | length > 0 }}"
+          smtp_username_present: "{{ smtp_username | default('') | length > 0 }}"
+          smtp_password_present: "{{ smtp_password | default('') | length > 0 }}"
+          homeassistant_username_present: "{{ homeassistant_username | default('') | length > 0 }}"
+          homeassistant_password_present: "{{ homeassistant_password | default('') | length > 0 }}"
+          github_billing_token_present: "{{ github_billing_token | default('') | length > 0 }}"

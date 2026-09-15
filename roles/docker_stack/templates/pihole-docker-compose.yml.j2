@@ -1,0 +1,20 @@
+name: pihole-stack
+services:
+  pihole:
+    image: pihole/pihole:2025.08.0
+    container_name: pihole
+    restart: unless-stopped
+    ports:
+      - "{{ nas_ip }}:{{ pihole_dns_port }}:53/tcp"
+      - "{{ nas_ip }}:{{ pihole_dns_port }}:53/udp"
+      - "{{ nas_ip }}:{{ pihole_web_port }}:80/tcp"
+    environment:
+      TZ: PRIMARY_TIMEZONE
+      FTLCONF_webserver_api_password: {{ homelab_admin_password | to_json }}
+      FTLCONF_dns_listeningMode: ALL
+      FTLCONF_dns_upstreams: "1.1.1.1;9.9.9.9"
+    volumes:
+      - pihole_data:/etc/pihole
+    profiles: [nas]
+volumes:
+  pihole_data:

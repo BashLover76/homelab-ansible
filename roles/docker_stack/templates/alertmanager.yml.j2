@@ -1,0 +1,23 @@
+global:
+  resolve_timeout: 5m
+{% if alert_email_enabled | bool %}
+  smtp_smarthost: {{ smtp_smarthost | to_json }}
+  smtp_from: {{ smtp_from | to_json }}
+  smtp_auth_username: {{ smtp_username | to_json }}
+  smtp_auth_password: {{ smtp_password | to_json }}
+  smtp_require_tls: true
+{% endif %}
+route:
+  receiver: {{ 'email' if alert_email_enabled | bool else 'local-only' }}
+  group_by: [alertname, server]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 24h
+receivers:
+  - name: local-only
+{% if alert_email_enabled | bool %}
+  - name: email
+    email_configs:
+      - to: {{ alert_email_to | to_json }}
+        send_resolved: true
+{% endif %}

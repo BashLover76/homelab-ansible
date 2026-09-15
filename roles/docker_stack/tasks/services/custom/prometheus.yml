@@ -1,4 +1,27 @@
 ---
+- name: Créer les répertoires Prometheus
+  ansible.builtin.file:
+    path: "{{ stacks_base_path }}/prometheus/{{ item }}"
+    state: directory
+    owner: '65534'
+    mode: '0750'
+  loop: [rules, secrets]
+
+- name: Installer le secret de collecte WUD
+  ansible.builtin.copy:
+    content: "{{ homelab_admin_password }}"
+    dest: "{{ stacks_base_path }}/prometheus/secrets/wud-password"
+    owner: '65534'
+    mode: '0400'
+  no_log: true
+
+- name: Installer les règles d'alertes
+  ansible.builtin.template:
+    src: monitoring-alerts.yml.j2
+    dest: "{{ stacks_base_path }}/prometheus/rules/homelab.yml"
+    mode: '0644'
+  register: prometheus_rules_result
+
 - name: Déployer le fichier de configuration Prometheus additionnel
   ansible.builtin.template:
     src: "prometheus.yml.j2"
@@ -6,3 +29,4 @@
     owner: homelab
     group: docker
     mode: '0644'
+  register: prometheus_config_result

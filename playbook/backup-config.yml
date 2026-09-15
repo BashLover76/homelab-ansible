@@ -1,0 +1,20 @@
+---
+- name: Sauvegarder les configurations des applications existantes
+  hosts: nas
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Installer le script de sauvegarde
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/snapshot-config.py"
+        dest: /volume1/Docker/snapshot-config.py
+        owner: root
+        mode: '0700'
+    - name: Exporter les configurations et vérifier les bases SQLite
+      ansible.builtin.command:
+        argv: [/usr/local/bin/python3.10, /volume1/Docker/snapshot-config.py]
+      register: config_snapshot
+      changed_when: true
+    - name: Indiquer le fichier de sauvegarde
+      ansible.builtin.debug:
+        msg: "{{ config_snapshot.stdout }}"

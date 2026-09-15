@@ -1,0 +1,2 @@
+target_hosts: nas
+selected_services: [alertmanager, prometheus, whatsupdocker, pihole, grafana]

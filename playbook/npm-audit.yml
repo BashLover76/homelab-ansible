@@ -1,0 +1,30 @@
+---
+- name: Auditer le proxy local
+  hosts: nas
+  gather_facts: false
+  tasks:
+    - name: Authentifier NPM
+      ansible.builtin.uri:
+        url: http://127.0.0.1:81/api/tokens
+        method: POST
+        body_format: json
+        body:
+          identity: "{{ npm_admin_email }}"
+          secret: "{{ homelab_admin_password }}"
+        timeout: 10
+      register: npm_login
+      no_log: true
+    - name: Lire les sous-domaines
+      ansible.builtin.uri:
+        url: http://127.0.0.1:81/api/nginx/proxy-hosts
+        headers:
+          Authorization: "Bearer {{ npm_login.json.token }}"
+        timeout: 10
+      register: npm_hosts
+      no_log: true
+    - name: Résumer les destinations
+      ansible.builtin.debug:
+        msg: "{{ item.domain_names }} -> {{ item.forward_host }}:{{ item.forward_port }}; certificat={{ item.certificate_id }}"
+      loop: "{{ npm_hosts.json }}"
+      loop_control:
+        label: "{{ item.id }}"

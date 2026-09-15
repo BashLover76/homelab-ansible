@@ -1,0 +1,168 @@
+---
+- name: Maintenir une autorité locale et un certificat pour le domaine Free
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    pki_dir: "{{ playbook_dir }}/../.local-pki"
+  tasks:
+    - name: Protéger le répertoire des clés
+      ansible.builtin.file:
+        path: "{{ pki_dir }}"
+        state: directory
+        mode: '0700'
+    - name: Créer la clé de l'autorité locale
+      community.crypto.openssl_privatekey:
+        path: "{{ pki_dir }}/ca.key"
+        size: 4096
+        mode: '0600'
+    - name: Créer la demande de certificat de l'autorité
+      community.crypto.openssl_csr:
+        path: "{{ pki_dir }}/ca.csr"
+        privatekey_path: "{{ pki_dir }}/ca.key"
+        common_name: homelab Homelab Local CA
+        basic_constraints: ['CA:TRUE', 'pathlen:0']
+        basic_constraints_critical: true
+        key_usage: [keyCertSign, cRLSign]
+        key_usage_critical: true
+    - name: Créer le certificat public de confiance
+      community.crypto.x509_certificate:
+        path: "{{ pki_dir }}/ca.crt"
+        privatekey_path: "{{ pki_dir }}/ca.key"
+        csr_path: "{{ pki_dir }}/ca.csr"
+        provider: selfsigned
+        selfsigned_not_after: '+3650d'
+    - name: Créer la clé TLS NPM
+      community.crypto.openssl_privatekey:
+        path: "{{ pki_dir }}/homelab.key"
+        size: 2048
+        mode: '0600'
+    - name: Créer la demande TLS des sous-domaines
+      community.crypto.openssl_csr:
+        path: "{{ pki_dir }}/homelab.csr"
+        privatekey_path: "{{ pki_dir }}/homelab.key"
+        common_name: '*.PUBLIC_DOMAIN'
+        subject_alt_name: ['DNS:*.PUBLIC_DOMAIN', 'DNS:PUBLIC_DOMAIN']
+        basic_constraints: ['CA:FALSE']
+        extended_key_usage: [serverAuth]
+        key_usage: [digitalSignature, keyEncipherment]
+    - name: Vérifier la présence du certificat
+      ansible.builtin.stat:
+        path: "{{ pki_dir }}/homelab.crt"
+      register: leaf_stat
+    - name: Vérifier la durée de validité restante
+      community.crypto.x509_certificate_info:
+        path: "{{ pki_dir }}/homelab.crt"
+        valid_at:
+          renewal: '+30d'
+      when: leaf_stat.stat.exists
+      register: leaf_info
+    - name: Émettre ou renouveler le certificat TLS local
+      community.crypto.x509_certificate:
+        path: "{{ pki_dir }}/homelab.crt"
+        csr_path: "{{ pki_dir }}/homelab.csr"
+        provider: ownca
+        ownca_path: "{{ pki_dir }}/ca.crt"
+        ownca_privatekey_path: "{{ pki_dir }}/ca.key"
+        ownca_not_after: '+365d'
+        force: "{{ leaf_stat.stat.exists and not (leaf_info.valid_at.renewal | default(false)) }}"
+
+- name: Importer le certificat local dans NPM
+  hosts: nas
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Créer le dossier de transfert protégé
+      ansible.builtin.file:
+        path: /volume1/Docker/nginx-proxy-manager/local-cert
+        state: directory
+        mode: '0700'
+    - name: Transférer seulement le certificat serveur et sa clé
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../.local-pki/{{ item }}"
+        dest: "/volume1/Docker/nginx-proxy-manager/local-cert/{{ item }}"
+        mode: '0600'
+      loop: [homelab.crt, homelab.key, ca.crt]
+      register: cert_copy
+      no_log: true
+    - name: Authentifier NPM
+      ansible.builtin.uri:
+        url: http://127.0.0.1:81/api/tokens
+        method: POST
+        body_format: json
+        body:
+          identity: "{{ npm_admin_email }}"
+          secret: "{{ homelab_admin_password }}"
+        timeout: 10
+      register: pki_login
+      no_log: true
+    - name: Lire les certificats NPM
+      ansible.builtin.uri:
+        url: http://127.0.0.1:81/api/nginx/certificates
+        headers:
+          Authorization: "Bearer {{ pki_login.json.token }}"
+        timeout: 10
+      register: pki_certificates
+      no_log: true
+    - name: Identifier le certificat géré
+      ansible.builtin.set_fact:
+        managed_cert: "{{ pki_certificates.json | selectattr('nice_name', 'equalto', 'Ansible Homelab Local TLS') | list | first | default({}) }}"
+      no_log: true
+    - name: Enregistrer le certificat personnalisé si absent
+      ansible.builtin.uri:
+        url: http://127.0.0.1:81/api/nginx/certificates
+        method: POST
+        headers:
+          Authorization: "Bearer {{ pki_login.json.token }}"
+        body_format: json
+        body:
+          provider: other
+          nice_name: Ansible Homelab Local TLS
+        status_code: [200, 201]
+        timeout: 10
+      when: managed_cert.id is not defined
+      register: new_cert
+      changed_when: true
+      no_log: true
+    - name: Déterminer l'identifiant TLS
+      ansible.builtin.set_fact:
+        npm_local_certificate_id: "{{ managed_cert.id | default(new_cert.json.id | default(0)) }}"
+    - name: Vérifier le témoin d'import réussi
+      ansible.builtin.stat:
+        path: /volume1/Docker/nginx-proxy-manager/local-cert/imported
+      register: imported_cert
+    - name: Lire l'empreinte du dernier import réussi
+      ansible.builtin.slurp:
+        src: /volume1/Docker/nginx-proxy-manager/local-cert/imported
+      when: imported_cert.stat.exists
+      register: imported_fingerprint
+    - name: Importer les fichiers TLS lors d'une modification
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:81/api/nginx/certificates/{{ npm_local_certificate_id }}/upload"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ pki_login.json.token }}"
+        body_format: form-multipart
+        remote_src: true
+        body:
+          certificate:
+            filename: /volume1/Docker/nginx-proxy-manager/local-cert/homelab.crt
+            mime_type: application/x-pem-file
+            multipart_encoding: 7or8bit
+          certificate_key:
+            filename: /volume1/Docker/nginx-proxy-manager/local-cert/homelab.key
+            mime_type: application/x-pem-file
+            multipart_encoding: 7or8bit
+          intermediate_certificate:
+            filename: /volume1/Docker/nginx-proxy-manager/local-cert/ca.crt
+            mime_type: application/x-pem-file
+            multipart_encoding: 7or8bit
+        timeout: 30
+      when: (imported_fingerprint.content | default('') | b64decode) != (lookup('file', playbook_dir ~ '/../.local-pki/homelab.crt') | hash('sha256')) or new_cert is changed
+      changed_when: true
+      no_log: true
+    - name: Enregistrer la réussite de l'import
+      ansible.builtin.copy:
+        content: "{{ lookup('file', playbook_dir ~ '/../.local-pki/homelab.crt') | hash('sha256') }}"
+        dest: /volume1/Docker/nginx-proxy-manager/local-cert/imported
+        mode: '0600'

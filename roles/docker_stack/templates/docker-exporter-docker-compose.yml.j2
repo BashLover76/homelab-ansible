@@ -1,0 +1,13 @@
+name: docker-exporter-stack
+
+services:
+  docker-exporter:
+    image: ghcr.io/davidborzek/docker-exporter:latest
+    container_name: docker-exporter
+    user: root
+    restart: unless-stopped
+    ports:
+      - "{{ docker_exporter_port }}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    profiles: ["{{ docker_profile }}"]

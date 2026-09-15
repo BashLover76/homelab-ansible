@@ -1,0 +1,23 @@
+---
+- name: Créer le dossier de configuration Alertmanager
+  ansible.builtin.file:
+    path: "{{ stacks_base_path }}/alertmanager/config"
+    state: directory
+    owner: '65534'
+    mode: '0750'
+- name: Vérifier les paramètres SMTP si activés
+  ansible.builtin.assert:
+    that:
+      - smtp_smarthost is defined
+      - smtp_from is defined
+      - smtp_username is defined
+      - smtp_password is defined
+  when: alert_email_enabled | bool
+- name: Configurer Alertmanager
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: "{{ stacks_base_path }}/alertmanager/config/alertmanager.yml"
+    owner: '65534'
+    mode: '0400'
+  register: alertmanager_config_result
+  no_log: true

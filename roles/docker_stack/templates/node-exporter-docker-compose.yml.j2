@@ -10,6 +10,8 @@ services:
     pid: host
     command:
       - '--path.rootfs=/host'
+      - '--collector.textfile.directory=/textfile'
     volumes:
       - /:/host:ro
+      - ./textfile:/textfile:ro
     profiles: ["{{ docker_profile }}"]

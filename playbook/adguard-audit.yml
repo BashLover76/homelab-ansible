@@ -1,0 +1,27 @@
+---
+- name: Auditer AdGuard ADM
+  hosts: nas
+  gather_facts: false
+  module_defaults:
+    ansible.builtin.uri:
+      url_username: homelab
+      url_password: "{{ adguard_admin_password }}"
+      force_basic_auth: true
+      timeout: 10
+  tasks:
+    - name: Lire la configuration DNS existante
+      ansible.builtin.uri:
+        url: http://NAS_IP:8030/control/dns_info
+      register: adguard_dns
+      no_log: true
+    - name: Lire les réécritures DNS
+      ansible.builtin.uri:
+        url: http://NAS_IP:8030/control/rewrite/list
+      register: adguard_rewrites
+      no_log: true
+    - name: Résumer le routage DNS
+      ansible.builtin.debug:
+        msg:
+          upstream: "{{ adguard_dns.json.upstream_dns }}"
+          fallback: "{{ adguard_dns.json.fallback_dns }}"
+          rewrites: "{{ adguard_rewrites.json }}"

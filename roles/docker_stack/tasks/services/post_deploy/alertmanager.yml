@@ -1,0 +1,5 @@
+---
+- name: Recharger Alertmanager si sa configuration a changé
+  ansible.builtin.command: docker kill --signal=HUP alertmanager
+  when: alertmanager_config_result is changed
+  changed_when: true

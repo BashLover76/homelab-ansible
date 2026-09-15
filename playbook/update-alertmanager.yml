@@ -1,0 +1,225 @@
+---
+# First supported migration contract. Other services remain notification-only.
+- name: Tester et promouvoir la version Alertmanager détectée par WUD
+  hosts: nas
+  become: true
+  gather_facts: false
+  vars:
+    compose_dir: /volume1/Docker/alertmanager
+  pre_tasks:
+    - name: Créer un environnement Python isolé pour le pipeline
+      ansible.builtin.command:
+        argv: [/usr/local/bin/python3.10, '-m', venv, /volume1/Docker/ansible-runtime]
+        creates: /volume1/Docker/ansible-runtime/bin/python
+    - name: Installer les dépendances Docker dans cet environnement
+      ansible.builtin.pip:
+        name: requests==2.32.5
+        virtualenv: /volume1/Docker/ansible-runtime
+    - name: Utiliser l'interpréteur isolé pour ce play
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: /volume1/Docker/ansible-runtime/bin/python
+  tasks:
+    - name: Lire la proposition WUD depuis Prometheus
+      ansible.builtin.uri:
+        url: 'http://127.0.0.1:9090/api/v1/query?query=wud_containers%7Bname%3D%22alertmanager%22%2Cserver%3D%22nas%22%2Cupdate_available%3D%22true%22%7D'
+        timeout: 10
+      register: wud_proposal
+    - name: Terminer si WUD ne propose pas de nouvelle version
+      ansible.builtin.meta: end_play
+      when: wud_proposal.json.data.result | length == 0
+    - name: Vérifier la proposition de mise à jour
+      ansible.builtin.assert:
+        that:
+          - wud_proposal.json.data.result | length == 1
+          - wud_proposal.json.data.result[0].metric.image_name == 'prom/alertmanager'
+          - wud_proposal.json.data.result[0].metric.result_tag is match('^v[0-9]+\.[0-9]+\.[0-9]+$')
+    - name: Fixer la version proposée
+      ansible.builtin.set_fact:
+        proposed_image: "prom/alertmanager:{{ wud_proposal.json.data.result[0].metric.result_tag }}"
+    - name: Télécharger uniquement la version proposée
+      community.docker.docker_image:
+        name: "{{ proposed_image }}"
+        source: pull
+    - name: Lire l'empreinte immuable téléchargée
+      community.docker.docker_image_info:
+        name: "{{ proposed_image }}"
+      register: proposed_info
+    - name: Fixer l'image testée par empreinte
+      ansible.builtin.set_fact:
+        tested_image: "{{ proposed_image }}@{{ proposed_info.images[0].RepoDigests[0].split('@')[1] }}"
+    - name: Lire le conteneur de production
+      community.docker.docker_container_info:
+        name: alertmanager
+      register: production
+    - name: Exiger la présence de la production
+      ansible.builtin.assert:
+        that: production.exists
+    - name: Terminer si cette image est déjà en production
+      ansible.builtin.meta: end_play
+      when: production.container.Image == proposed_info.images[0].Id
+    - name: Valider la configuration avant toute interruption
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - --network=none
+          - --entrypoint=/bin/amtool
+          - -v
+          - '{{ compose_dir }}/config:/config:ro'
+          - '{{ tested_image }}'
+          - check-config
+          - /config/alertmanager.yml
+      changed_when: false
+    - name: Créer le dossier des versions
+      ansible.builtin.file:
+        path: '{{ compose_dir }}/releases'
+        state: directory
+        mode: '0700'
+    - name: Réserver un dossier de migration isolé
+      ansible.builtin.tempfile:
+        state: directory
+        path: '{{ compose_dir }}/releases'
+        prefix: candidate-
+      register: candidate_dir
+    - name: Lire les silences de production avant migration
+      ansible.builtin.uri:
+        url: http://NAS_IP:9093/api/v2/silences
+        timeout: 10
+      register: original_silences
+      no_log: true
+    - name: Vérifier le manifeste de version précédent
+      ansible.builtin.stat:
+        path: '{{ compose_dir }}/release.yml'
+      register: original_release_stat
+    - name: Sauvegarder le manifeste de version précédent
+      ansible.builtin.slurp:
+        src: '{{ compose_dir }}/release.yml'
+      when: original_release_stat.stat.exists
+      register: original_release
+    - name: Exécuter la migration avec restauration en cas d'échec
+      block:
+        - name: Arrêter la production pour une copie cohérente
+          community.docker.docker_container:
+            name: alertmanager
+            state: stopped
+        - name: Copier les données sans modifier le volume original
+          ansible.builtin.command:
+            argv: [docker, cp, 'alertmanager:/alertmanager/.', '{{ candidate_dir.path }}/data']
+          changed_when: true
+        - name: Préserver les droits du processus Alertmanager
+          ansible.builtin.file:
+            path: '{{ candidate_dir.path }}/data'
+            owner: '65534'
+            group: '65534'
+            recurse: true
+        - name: Démarrer la nouvelle image sur les données clonées
+          community.docker.docker_container:
+            name: alertmanager-candidate
+            image: '{{ tested_image }}'
+            state: started
+            recreate: true
+            restart_policy: 'no'
+            labels:
+              wud.watch: 'false'
+            published_ports: ['127.0.0.1:19093:9093']
+            volumes:
+              - '{{ compose_dir }}/config:/etc/alertmanager:ro'
+              - '{{ candidate_dir.path }}/data:/alertmanager'
+            command: ['--config.file=/etc/alertmanager/alertmanager.yml', '--storage.path=/alertmanager', '--cluster.listen-address=']
+        - name: Attendre la santé du candidat
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19093/-/ready
+            timeout: 5
+          register: candidate_health
+          retries: 12
+          delay: 5
+          until: candidate_health.status | default(0) == 200
+        - name: Vérifier que les silences migrés sont lisibles
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19093/api/v2/silences
+            timeout: 10
+          register: candidate_silences
+          no_log: true
+        - name: Exiger la conservation des silences
+          ansible.builtin.assert:
+            that: candidate_silences.json | map(attribute='id') | sort == original_silences.json | map(attribute='id') | sort
+        - name: Arrêter le candidat avant de promouvoir ses données
+          community.docker.docker_container:
+            name: alertmanager-candidate
+            state: stopped
+        - name: Sauvegarder le Compose de production
+          ansible.builtin.copy:
+            src: '{{ compose_dir }}/docker-compose.yml'
+            dest: '{{ candidate_dir.path }}/previous-compose.yml'
+            remote_src: true
+            mode: '0600'
+        - name: Générer le Compose avec l'image testée et les données migrées
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../roles/docker_stack/templates/alertmanager-docker-compose.yml.j2"
+            dest: '{{ compose_dir }}/docker-compose.yml'
+            mode: '0600'
+          vars:
+            nas_ip: NAS_IP
+            alertmanager_port: '9093'
+            alertmanager_image: '{{ tested_image }}'
+            alertmanager_data_source: '{{ candidate_dir.path }}/data'
+        - name: Promouvoir la nouvelle production
+          community.docker.docker_compose_v2:
+            project_src: '{{ compose_dir }}'
+            state: present
+            pull: never
+        - name: Vérifier la production promue
+          ansible.builtin.uri:
+            url: http://NAS_IP:9093/-/ready
+            timeout: 5
+          register: production_health
+          retries: 12
+          delay: 5
+          until: production_health.status | default(0) == 200
+        - name: Enregistrer la version pour les déploiements Ansible suivants
+          ansible.builtin.copy:
+            content: "{{ {'alertmanager_image': tested_image, 'alertmanager_data_source': candidate_dir.path ~ '/data'} | to_nice_yaml }}"
+            dest: '{{ compose_dir }}/release.yml'
+            mode: '0600'
+        - name: Rapatrier le manifeste réintégrable
+          ansible.builtin.fetch:
+            src: '{{ compose_dir }}/release.yml'
+            dest: "{{ playbook_dir }}/../artifacts/releases/nas/alertmanager.yml"
+            flat: true
+      rescue:
+        - name: Arrêter le candidat après un échec
+          community.docker.docker_container:
+            name: alertmanager-candidate
+            state: stopped
+          failed_when: false
+        - name: Vérifier si le Compose a été modifié
+          ansible.builtin.stat:
+            path: '{{ candidate_dir.path }}/previous-compose.yml'
+          register: previous_compose
+        - name: Restaurer le Compose initial si nécessaire
+          ansible.builtin.copy:
+            src: '{{ candidate_dir.path }}/previous-compose.yml'
+            dest: '{{ compose_dir }}/docker-compose.yml'
+            remote_src: true
+            mode: '0600'
+          when: previous_compose.stat.exists
+        - name: Relancer la production initiale et ses données originales
+          community.docker.docker_compose_v2:
+            project_src: '{{ compose_dir }}'
+            state: present
+            pull: never
+        - name: Restaurer le manifeste de version précédent
+          ansible.builtin.copy:
+            content: '{{ original_release.content | b64decode }}'
+            dest: '{{ compose_dir }}/release.yml'
+            mode: '0600'
+          when: original_release_stat.stat.exists
+        - name: Retirer le manifeste créé par cette tentative si nécessaire
+          ansible.builtin.file:
+            path: '{{ compose_dir }}/release.yml'
+            state: absent
+          when: not original_release_stat.stat.exists
+        - name: Signaler l'échec de validation
+          ansible.builtin.fail:
+            msg: La migration a échoué. La production initiale a été relancée ; les données candidates restent disponibles pour diagnostic.

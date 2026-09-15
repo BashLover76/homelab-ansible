@@ -1,0 +1,15 @@
+---
+- name: Auditer les intégrations ADM sans modifier les fichiers internes
+  hosts: nas
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Exécuter l'audit limité aux identifiants publics
+      ansible.builtin.script:
+        cmd: "{{ playbook_dir }}/../scripts/audit-homeassistant.py"
+        executable: /usr/local/bin/python3.10
+      register: ha_integrations
+      changed_when: false
+    - name: Afficher les intégrations existantes
+      ansible.builtin.debug:
+        msg: "{{ ha_integrations.stdout | from_json }}"

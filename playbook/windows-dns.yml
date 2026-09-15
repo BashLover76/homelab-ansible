@@ -1,0 +1,18 @@
+---
+- name: Piloter le DNS Windows depuis WSL
+  hosts: minisforum
+  gather_facts: false
+  tasks:
+    - name: Résoudre le chemin Windows du script
+      ansible.builtin.command:
+        argv: [wslpath, '-w', '{{ playbook_dir }}/../scripts/windows-dns.ps1']
+      register: windows_dns_script
+      changed_when: false
+    - name: Auditer ou appliquer le DNS Windows
+      ansible.builtin.command:
+        argv: "{{ ['/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', windows_dns_script.stdout] + (['-Apply'] if windows_dns_apply | default(false) | bool else []) }}"
+      register: windows_dns_result
+      changed_when: "'CHANGED' in windows_dns_result.stdout"
+    - name: Résumer le DNS Windows
+      ansible.builtin.debug:
+        msg: "{{ windows_dns_result.stdout_lines }}"

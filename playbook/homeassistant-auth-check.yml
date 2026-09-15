@@ -1,0 +1,34 @@
+---
+- name: Vérifier le compte commun sur Home Assistant sans modifier son mot de passe
+  hosts: nas
+  gather_facts: false
+  tasks:
+    - name: Ouvrir le formulaire d'authentification Home Assistant
+      ansible.builtin.uri:
+        url: http://NAS_IP:8123/auth/login_flow
+        method: POST
+        body_format: json
+        body:
+          client_id: http://NAS_IP:8123/
+          handler: [homeassistant, null]
+          redirect_uri: http://NAS_IP:8123/
+        timeout: 10
+      register: ha_login_flow
+      no_log: true
+    - name: Vérifier les identifiants administrateur du vault
+      ansible.builtin.uri:
+        url: "http://NAS_IP:8123/auth/login_flow/{{ ha_login_flow.json.flow_id }}"
+        method: POST
+        body_format: json
+        body:
+          client_id: http://NAS_IP:8123/
+          username: "{{ homeassistant_username | default('homelab') }}"
+          password: "{{ homeassistant_password | default(homelab_admin_password) }}"
+        timeout: 10
+      register: ha_login_check
+      no_log: true
+    - name: Résumer la disponibilité du compte sans divulguer les secrets
+      ansible.builtin.debug:
+        msg:
+          authentication: "{{ ha_login_check.json.type }}"
+          errors: "{{ ha_login_check.json.errors | default({}) }}"

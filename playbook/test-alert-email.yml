@@ -1,0 +1,46 @@
+---
+- name: Envoyer une alerte de test et vérifier sa remise SMTP
+  hosts: nas
+  gather_facts: false
+  tasks:
+    - name: Lire le compteur initial d'envois
+      ansible.builtin.uri:
+        url: http://NAS_IP:9093/metrics
+        return_content: true
+      register: before
+    - name: Retenir le compteur e-mail
+      ansible.builtin.set_fact:
+        emails_before: >-
+          {{ (before.content | regex_findall('alertmanager_notifications_total\{integration="email"\} ([0-9.e+]+)') | first | default('0')) | float }}
+    - name: Soumettre une alerte de test expirant dans trois minutes
+      ansible.builtin.uri:
+        url: http://NAS_IP:9093/api/v2/alerts
+        method: POST
+        body_format: json
+        status_code: 200
+        body:
+          - labels:
+              alertname: HomelabEmailTest
+              server: nas
+              severity: info
+              test_id: "{{ lookup('pipe', 'date +%s') }}"
+            annotations:
+              summary: Test Ansible des alertes e-mail du homelab
+              description: Alerte de validation technique, aucune panne détectée.
+            startsAt: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+            endsAt: >-
+              {{ lookup('pipe', 'date -u -d "+3 minutes" +%Y-%m-%dT%H:%M:%SZ') }}
+      changed_when: true
+    - name: Attendre une remise SMTP réussie
+      ansible.builtin.uri:
+        url: http://NAS_IP:9093/metrics
+        return_content: true
+      register: after
+      until: (after.content | regex_findall('alertmanager_notifications_total\{integration="email"\} ([0-9.e+]+)') | first | default('0') | float) > (emails_before | float)
+      retries: 12
+      delay: 5
+      no_log: true
+    - name: Exiger l'absence de nouveaux échecs SMTP
+      ansible.builtin.assert:
+        that:
+          - (after.content | regex_findall('alertmanager_notifications_failed_total\{integration="email"[^}]*\} ([0-9.e+]+)') | map('float') | sum) == (before.content | regex_findall('alertmanager_notifications_failed_total\{integration="email"[^}]*\} ([0-9.e+]+)') | map('float') | sum)

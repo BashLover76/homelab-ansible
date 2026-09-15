@@ -1,0 +1,10 @@
+---
+- name: Recharger Prometheus apres mise a jour de sa configuration
+  ansible.builtin.command:
+    argv:
+      - docker
+      - kill
+      - --signal=HUP
+      - prometheus
+  changed_when: true
+  when: prometheus_config_result is changed or prometheus_rules_result is changed

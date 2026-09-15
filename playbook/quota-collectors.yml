@@ -1,0 +1,77 @@
+---
+- name: Déployer la collecte des quotas personnels sur Minisforum
+  hosts: minisforum
+  gather_facts: false
+  tasks:
+#    - name: Trouver le client Codex Windows existant
+#      ansible.builtin.command:
+#        argv: [/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe, '-NoProfile', '-NonInteractive', '-Command', '(Get-Command codex).Source']
+#      register: codex_windows
+#      changed_when: false
+    - name: Trouver le client Codex Windows existant
+      ansible.builtin.command:
+        argv:
+          - /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+          - '-NoProfile'
+          - '-NonInteractive'
+          - '-Command'
+          - "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; (Get-Command codex).Source"
+      register: codex_windows
+      changed_when: false
+    - name: Convertir son chemin pour WSL
+      ansible.builtin.command:
+        argv: [wslpath, '-u', '{{ codex_windows.stdout | trim }}']
+      register: codex_wsl
+      changed_when: false
+    - name: Déployer node-exporter et son collecteur textfile
+      ansible.builtin.include_role:
+        name: docker_stack
+        apply:
+          become: true
+      vars:
+        services_list: [node-exporter]
+        configure_npm: false
+    - name: Créer le dossier des collecteurs
+      ansible.builtin.file:
+        path: /opt/homelab/metrics
+        state: directory
+        mode: '0755'
+      become: true
+    - name: Installer le collecteur Codex
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/codex-quota.py"
+        dest: /opt/homelab/metrics/codex-quota.py
+        mode: '0755'
+      become: true
+    - name: Collecter sous le compte utilisateur déjà connecté à Codex
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, /opt/homelab/metrics/codex-quota.py, '--codex', '{{ codex_wsl.stdout | trim }}', '--output', /opt/homelab/node-exporter/textfile/codex.prom]
+      changed_when: false
+    - name: Planifier la collecte toutes les cinq minutes
+      ansible.builtin.cron:
+        name: Homelab Codex personal quota
+        minute: '*/5'
+        job: "/usr/bin/flock -n /home/homelab/.homelab-quota.lock /usr/bin/python3 /opt/homelab/metrics/codex-quota.py --codex {{ codex_wsl.stdout | trim | quote }} --output /opt/homelab/node-exporter/textfile/codex.prom"
+    - name: Installer le collecteur Copilot personnel
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/copilot-quota.py"
+        dest: /opt/homelab/metrics/copilot-quota.py
+        mode: '0755'
+      become: true
+    - name: Installer le jeton de lecture GitHub sans le publier
+      ansible.builtin.copy:
+        content: "{{ {'token': github_billing_token | default('')} | to_json }}"
+        dest: /opt/homelab/metrics/github.json
+        owner: homelab
+        mode: '0600'
+      become: true
+      no_log: true
+    - name: Collecter Copilot ou signaler explicitement l'absence d'accès
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, /opt/homelab/metrics/copilot-quota.py, '--config', /opt/homelab/metrics/github.json, '--output', /opt/homelab/node-exporter/textfile/copilot.prom]
+      changed_when: false
+    - name: Planifier la collecte GitHub horaire
+      ansible.builtin.cron:
+        name: Homelab Copilot personal quota
+        minute: '17'
+        job: /usr/bin/flock -n /home/homelab/.homelab-copilot.lock /usr/bin/python3 /opt/homelab/metrics/copilot-quota.py --config /opt/homelab/metrics/github.json --output /opt/homelab/node-exporter/textfile/copilot.prom

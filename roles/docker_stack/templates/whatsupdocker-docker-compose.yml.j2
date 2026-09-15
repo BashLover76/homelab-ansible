@@ -14,7 +14,5 @@ services:
     environment:
       - WUD_WATCHER_NAS_SOCKET=/var/run/docker.sock
       - WUD_WATCHER_NAS_WATCHBYDEFAULT=true
-      - WUD_WATCHER_MINISFORUM_HOST={{ minisforum_host }}
-      - WUD_WATCHER_MINISFORUM_PORT=2375
-      - WUD_WATCHER_MINISFORUM_WATCHBYDEFAULT=true
+      - WUD_WATCHER_NAS_WATCHDIGESTDEFAULT=true
     profiles: ["nas"]

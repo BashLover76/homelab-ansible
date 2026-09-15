@@ -1,22 +1,31 @@
 ---
 # --- Réseau & Hôtes ---
 nas_ip: "NAS_IP"
-minisforum_host: "minisforum.lan"
+minisforum_host: "MINISFORUM_IP"
+ollama_windows_host: "MINISFORUM_IP"
+alertmanager_port: "9093"
+alert_email_to: "ALERT_EMAIL"
+alert_email_enabled: false
+pihole_dns_port: "5353"
+pihole_web_port: "8082"
 
 # --- Ports des services ---
 homarr_port: "7575"
 prometheus_port: "9090"
 grafana_port: "3000"
 wud_port: "3050"
+wud_agent_port: "3051"
 n8n_port: "5678"
 n8n_sandbox_port: "8080"
 open_webui_port: "3100"
 ollama_port: "11434"
 node_exporter_port: "9100"
+cadvisor_port: "8081"
+docker_exporter_port: "9417"
 
 # --- URLs de communication inter-noeuds ---
 n8n_webhook_url: "http://{{ nas_ip }}:{{ n8n_port }}/"
-ollama_base_url: "http://{{ minisforum_host }}:{{ ollama_port }}"
+ollama_base_url: "http://{{ ollama_windows_host }}:{{ ollama_port }}"
 n8n_sandbox_service_url: "http://{{ minisforum_host }}:{{ n8n_sandbox_port }}"
 n8n_num_runners: 1
 sandbox_runner_http_base_url: "https://sandbox-runner-1:8080"

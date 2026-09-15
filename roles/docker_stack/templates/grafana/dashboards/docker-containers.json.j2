@@ -1,0 +1,32 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Conteneurs actifs",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "count(docker_container_state{state=\"running\"} == 1)", "refId": "A", "instant": true}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "value", "graphMode": "none"}
+    },
+    {
+      "type": "table",
+      "title": "Conteneurs Docker par serveur",
+      "gridPos": {"h": 16, "w": 24, "x": 0, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max by (server, name, state) (docker_container_state == 1)", "refId": "A", "instant": true, "format": "table"}],
+      "options": {"showHeader": true, "cellHeight": "sm"},
+      "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": true, "Value": true}, "renameByName": {"server": "Serveur", "name": "Conteneur", "state": "Statut"}}}]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["homelab", "docker", "containers"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Homelab - Conteneurs Docker",
+  "uid": "homelab-docker-containers",
+  "version": 3
+}

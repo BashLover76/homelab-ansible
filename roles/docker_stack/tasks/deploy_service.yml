@@ -5,11 +5,12 @@
     dest: "{{ stacks_base_path }}/{{ item.name }}/docker-compose.yml"
     owner: homelab
     group: docker
-    mode: '0644'
+    mode: '0600'
+  no_log: true
 
 - name: Lancer ou mettre à jour la stack
   community.docker.docker_compose_v2:
     project_src: "{{ stacks_base_path }}/{{ item.name }}"
     state: present
-    pull: always
+    pull: "{{ compose_pull_policy | default('missing') }}"
     recreate: auto

@@ -1,0 +1,2 @@
+---
+service_port: "{{ pihole_web_port }}"

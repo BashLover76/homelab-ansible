@@ -1,0 +1,18 @@
+name: alertmanager-stack
+services:
+  alertmanager:
+    image: "{{ alertmanager_image | default('prom/alertmanager:v0.28.1') }}"
+    container_name: alertmanager
+    restart: unless-stopped
+    ports:
+      - "{{ nas_ip }}:{{ alertmanager_port }}:9093"
+    volumes:
+      - ./config:/etc/alertmanager:ro
+      - "{{ alertmanager_data_source | default('alertmanager_data') }}:/alertmanager"
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --cluster.listen-address=
+    profiles: [nas]
+volumes:
+  alertmanager_data:

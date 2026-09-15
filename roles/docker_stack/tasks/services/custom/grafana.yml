@@ -1,4 +1,12 @@
 ---
+- name: Télécharger la révision figée du dashboard Node Exporter Full 1860
+  ansible.builtin.get_url:
+    url: https://grafana.com/api/dashboards/1860/revisions/37/download
+    dest: "{{ stacks_base_path }}/grafana/node-exporter-1860.source.json"
+    checksum: sha256:d4313569a6a74471de08e3160c674e4b5c015f1385f385170232734f9124ea63
+    mode: '0644'
+    timeout: 30
+
 - name: Créer les répertoires de provisioning Grafana
   ansible.builtin.file:
     path: "{{ stacks_base_path }}/grafana/{{ item }}"
@@ -33,4 +41,29 @@
     dest: "{{ stacks_base_path }}/grafana/grafana/dashboards/server-health.json"
     owner: homelab
     group: docker
+    mode: '0644'
+
+- name: Lire le dashboard 1860 à provisionner
+  ansible.builtin.slurp:
+    src: "{{ stacks_base_path }}/grafana/node-exporter-1860.source.json"
+  register: node_dashboard_source
+
+- name: Provisionner le dashboard 1860 avec la datasource gérée
+  ansible.builtin.copy:
+    content: "{{ node_dashboard_source.content | b64decode | replace('${DS_PROMETHEUS}', 'prometheus') }}"
+    dest: "{{ stacks_base_path }}/grafana/grafana/dashboards/node-exporter-1860.json"
+    mode: '0644'
+
+- name: Installer le dashboard des conteneurs Docker
+  ansible.builtin.template:
+    src: grafana/dashboards/docker-overview.json.j2
+    dest: "{{ stacks_base_path }}/grafana/grafana/dashboards/docker-containers.json"
+    owner: homelab
+    group: docker
+    mode: '0644'
+
+- name: Installer le dashboard des quotas personnels
+  ansible.builtin.template:
+    src: grafana/dashboards/personal-quotas.json.j2
+    dest: '{{ stacks_base_path }}/grafana/grafana/dashboards/personal-quotas.json'
     mode: '0644'

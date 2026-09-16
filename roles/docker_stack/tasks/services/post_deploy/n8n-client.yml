@@ -1,0 +1,56 @@
+---
+- name: Créer le dossier des workflows n8n
+  ansible.builtin.file:
+    path: "{{ n8n_volume_path }}/workflows"
+    state: directory
+    owner: homelab
+    group: docker
+    mode: '0750'
+
+- name: Déployer le workflow de mises à jour
+  ansible.builtin.template:
+    src: n8n-container-updates-workflow.json.j2
+    dest: "{{ n8n_volume_path }}/workflows/homelab-container-updates.json"
+    owner: homelab
+    group: docker
+    mode: '0640'
+  no_log: true
+  register: n8n_updates_workflow
+
+- name: Lister les workflows n8n
+  ansible.builtin.command:
+    argv: [docker, exec, n8n, n8n, list:workflow]
+  register: n8n_workflows
+  changed_when: false
+
+- name: Importer le workflow de mises à jour dans n8n
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - n8n
+      - n8n
+      - import:workflow
+      - --input=/workflows/homelab-container-updates.json
+  when: n8n_updates_workflow is changed or 'homelab-container-updates|Homelab - Container updates' not in n8n_workflows.stdout
+  changed_when: true
+  register: n8n_import_updates_workflow
+
+- name: Publier le workflow de mises à jour dans n8n
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - n8n
+      - n8n
+      - publish:workflow
+      - --id=homelab-container-updates
+  when: n8n_import_updates_workflow is changed
+  changed_when: true
+  register: n8n_publish_updates_workflow
+
+- name: Redémarrer n8n après publication du workflow
+  ansible.builtin.command:
+    argv: [docker, restart, n8n]
+  when: n8n_publish_updates_workflow is changed
+  changed_when: true

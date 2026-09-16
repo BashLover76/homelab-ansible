@@ -1,0 +1,3 @@
+---
+target_hosts: nas
+selected_services: [homelab-updater, n8n-client]

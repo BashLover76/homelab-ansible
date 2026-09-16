@@ -1,0 +1,57 @@
+---
+- name: Demander un token d'application Freebox OS
+  hosts: nas
+  gather_facts: false
+  vars:
+    freebox_app_id: homelab.dashboard
+    freebox_app_name: Homelab Dashboard
+    freebox_app_version: "1.0.0"
+    freebox_device_name: homelab-dashboard
+    freebox_api_url: "http://{{ freebox_ip | default('FREEBOX_IP') }}"
+  tasks:
+    - name: Lire la version de l'API Freebox
+      ansible.builtin.uri:
+        url: "{{ freebox_api_url }}/api_version"
+        timeout: 10
+      register: freebox_version
+
+    - name: Construire la base API Freebox
+      ansible.builtin.set_fact:
+        freebox_api_base: "{{ freebox_api_url }}{{ freebox_version.json.api_base_url }}v{{ freebox_version.json.api_version | float | int }}"
+
+    - name: Demander l'autorisation de l'application
+      ansible.builtin.uri:
+        url: "{{ freebox_api_base }}/login/authorize/"
+        method: POST
+        body_format: json
+        body:
+          app_id: "{{ freebox_app_id }}"
+          app_name: "{{ freebox_app_name }}"
+          app_version: "{{ freebox_app_version }}"
+          device_name: "{{ freebox_device_name }}"
+        status_code: 200
+      register: freebox_authorize
+      no_log: true
+
+    - name: Indiquer l'action physique à réaliser
+      ansible.builtin.debug:
+        msg: "Autorise maintenant '{{ freebox_app_name }}' sur l'écran de la Freebox, puis attends la fin de ce playbook."
+
+    - name: Attendre la validation sur la Freebox
+      ansible.builtin.uri:
+        url: "{{ freebox_api_base }}/login/authorize/{{ freebox_authorize.json.result.track_id }}"
+        timeout: 10
+      register: freebox_track
+      retries: 24
+      delay: 5
+      until: freebox_track.json.result.status in ['granted', 'denied', 'timeout']
+
+    - name: Exiger l'autorisation
+      ansible.builtin.assert:
+        that:
+          - freebox_track.json.result.status == 'granted'
+        fail_msg: "Autorisation Freebox non accordée : {{ freebox_track.json.result.status }}"
+
+    - name: Afficher la variable Vault à ajouter
+      ansible.builtin.debug:
+        msg: "Ajoute dans le Vault : freebox_app_token: '{{ freebox_authorize.json.result.app_token }}'"

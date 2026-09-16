@@ -1,0 +1,6 @@
+---
+service_domain: "dashboard.{{ basedomain }}"
+service_path: "/dashboard"
+service_port: "{{ homelab_dashboard_port }}"
+service_forward_host: "{{ ollama_windows_host }}"
+service_forward_port: "{{ homelab_dashboard_port }}"

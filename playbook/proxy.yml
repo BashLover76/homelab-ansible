@@ -6,13 +6,13 @@
     proxy_services:
       - {name: grafana, host: 'NAS_IP', port: 3000}
       - {name: homarr, host: 'NAS_IP', port: 7575}
+      - {name: dashboard, host: 'MINISFORUM_IP', port: 8780}
       - {name: prometheus, host: 'NAS_IP', port: 9090}
       - {name: wud, host: 'NAS_IP', port: 3050}
       - {name: npm, host: 'NAS_IP', port: 81}
       - {name: open-webui, host: 'MINISFORUM_IP', port: 3100}
       - {name: adguard, host: 'NAS_IP', port: 8030}
       - {name: homeassistant, host: 'NAS_IP', port: 8123}
-      - {name: pihole, host: 'NAS_IP', port: 8082}
       - {name: alertmanager, host: 'NAS_IP', port: 9093}
   tasks:
     - name: Appliquer le proxy géré

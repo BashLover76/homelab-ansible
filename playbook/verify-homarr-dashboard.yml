@@ -1,0 +1,48 @@
+---
+- name: Vérifier le dashboard Homarr local
+  hosts: nas
+  gather_facts: false
+  tasks:
+    - name: Lire l'API du dashboard
+      ansible.builtin.uri:
+        url: http://dashboard.PUBLIC_DOMAIN/api/dashboard?force=1
+        timeout: 25
+        status_code: 200
+        return_content: true
+      register: dashboard_api
+
+    - name: Exiger les sections principales
+      ansible.builtin.assert:
+        that:
+          - dashboard_api.json.servers is defined
+          - dashboard_api.json.docker is defined
+          - dashboard_api.json.weather is defined
+          - dashboard_api.json.lan is defined
+          - dashboard_api.json.lanSummary is defined
+          - dashboard_api.json.streaming is defined
+          - dashboard_api.json.tools | length == 16
+        success_msg: "Dashboard OK : {{ dashboard_api.json.servers | length }} serveurs, {{ dashboard_api.json.docker | length }} conteneurs, {{ dashboard_api.json.lan | length }} équipements LAN Freebox."
+
+    - name: Afficher le statut agrégé de la collecte Freebox
+      ansible.builtin.debug:
+        msg:
+          lan_total: "{{ dashboard_api.json.lan | length }}"
+          lan_online: "{{ dashboard_api.json.lanSummary.online | default(0) }}"
+          lan_offline: "{{ dashboard_api.json.lanSummary.offline | default(0) }}"
+          lan_wifi: "{{ dashboard_api.json.lanSummary.wifi | default(0) }}"
+          lan_wired: "{{ dashboard_api.json.lanSummary.lan | default(0) }}"
+
+    - name: Vérifier la route NPM HTTP
+      ansible.builtin.uri:
+        url: http://NAS_IP/
+        headers:
+          Host: dashboard.PUBLIC_DOMAIN
+        timeout: 10
+        status_code: 200
+      delegate_to: localhost
+
+    - name: Vérifier l'endpoint direct Minisforum
+      ansible.builtin.uri:
+        url: http://MINISFORUM_IP:8780/api/dashboard
+        timeout: 10
+        status_code: 200

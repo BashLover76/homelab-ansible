@@ -67,3 +67,11 @@
     src: grafana/dashboards/personal-quotas.json.j2
     dest: '{{ stacks_base_path }}/grafana/grafana/dashboards/personal-quotas.json'
     mode: '0644'
+
+- name: Installer le dashboard des KPIs Homelab
+  ansible.builtin.template:
+    src: grafana/dashboards/homelab-kpis.json.j2
+    dest: '{{ stacks_base_path }}/grafana/grafana/dashboards/homelab-kpis.json'
+    owner: homelab
+    group: docker
+    mode: '0644'

@@ -1,0 +1,9 @@
+---
+- name: Créer le réseau interne Homelab pour n8n
+  ansible.builtin.command:
+    argv: [docker, network, create, homelab_internal]
+  register: homelab_internal_network
+  changed_when: homelab_internal_network.rc == 0
+  failed_when:
+    - homelab_internal_network.rc != 0
+    - "'already exists' not in homelab_internal_network.stderr"

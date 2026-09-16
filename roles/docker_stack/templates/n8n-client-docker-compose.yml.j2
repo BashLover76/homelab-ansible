@@ -20,4 +20,12 @@ services:
     volumes:
       - {{ n8n_volume_path }}:/home/node/.n8n
       - /etc/hosts:/etc/hosts:ro
+      - {{ n8n_volume_path }}/workflows:/workflows
+    networks:
+      homelab_internal:
     profiles: ["nas"]
+
+networks:
+  homelab_internal:
+    name: homelab_internal
+    external: true

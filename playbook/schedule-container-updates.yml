@@ -1,0 +1,26 @@
+---
+- name: Planifier les pipelines de mise à jour de conteneurs supportés
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    repo_dir: "{{ playbook_dir }}/.."
+    update_script: "{{ repo_dir }}/scripts/run-container-updates.sh"
+    update_log: "{{ repo_dir }}/logs/container-updates.log"
+  tasks:
+    - name: Rendre le lanceur exécutable
+      ansible.builtin.file:
+        path: "{{ update_script }}"
+        mode: '0750'
+
+    - name: Créer le dossier de logs local
+      ansible.builtin.file:
+        path: "{{ repo_dir }}/logs"
+        state: directory
+        mode: '0750'
+
+    - name: Planifier les mises à jour validées
+      ansible.builtin.cron:
+        name: homelab container updates
+        minute: '*/15'
+        job: "cd {{ repo_dir }} && {{ update_script }} >> {{ update_log }} 2>&1"

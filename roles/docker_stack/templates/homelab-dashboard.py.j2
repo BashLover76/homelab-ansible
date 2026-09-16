@@ -1,0 +1,685 @@
+#!/usr/bin/env python3
+import base64
+import datetime as dt
+import json
+import os
+import re
+import ssl
+import hmac
+import hashlib
+from pathlib import Path
+from zoneinfo import ZoneInfo
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://NAS_IP:9090").rstrip("/")
+ALERTMANAGER_URL = os.environ.get("ALERTMANAGER_URL", "http://NAS_IP:9093").rstrip("/")
+ADGUARD_URL = os.environ.get("ADGUARD_URL", "http://NAS_IP:8030").rstrip("/")
+ADGUARD_USERNAME = os.environ.get("ADGUARD_USERNAME", "")
+ADGUARD_PASSWORD = os.environ.get("ADGUARD_PASSWORD", "")
+GOOGLE_CALENDAR_ICAL_URL = os.environ.get("GOOGLE_CALENDAR_ICAL_URL", "")
+STREAMING_FEEDS_JSON = os.environ.get("STREAMING_FEEDS_JSON", "{}")
+FREEBOX_URL = os.environ.get("FREEBOX_URL", "http://FREEBOX_IP").rstrip("/")
+FREEBOX_USERNAME = os.environ.get("FREEBOX_USERNAME", "")
+FREEBOX_PASSWORD = os.environ.get("FREEBOX_PASSWORD", "")
+FREEBOX_APP_TOKEN = os.environ.get("FREEBOX_APP_TOKEN", "")
+FREEBOX_APP_ID = "homelab.dashboard"
+TRAKT_CLIENT_ID = os.environ.get("TRAKT_CLIENT_ID", "")
+TRAKT_ACCESS_TOKEN = os.environ.get("TRAKT_ACCESS_TOKEN", "")
+SONARR_URL = os.environ.get("SONARR_URL", "").rstrip("/")
+SONARR_API_KEY = os.environ.get("SONARR_API_KEY", "")
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "")
+BETASERIES_API_KEY = os.environ.get("BETASERIES_API_KEY", "")
+BETASERIES_TOKEN = os.environ.get("BETASERIES_TOKEN", "")
+BETASERIES_USER_ID = os.environ.get("BETASERIES_USER_ID", "")
+BETASERIES_LOGIN = os.environ.get("BETASERIES_LOGIN", "")
+CACHE_DIR = Path("/cache")
+
+TOOLS = [
+    ("Homarr", "🏠", "http://homarr.PUBLIC_DOMAIN/"),
+    ("Grafana", "📊", "http://grafana.PUBLIC_DOMAIN/"),
+    ("Prometheus", "🔥", "http://prometheus.PUBLIC_DOMAIN/"),
+    ("Alertmanager", "🚨", "http://alertmanager.PUBLIC_DOMAIN/"),
+    ("WUD", "🐳", "http://wud.PUBLIC_DOMAIN/"),
+    ("AdGuard", "🧱", "http://adguard.PUBLIC_DOMAIN/"),
+    ("NPM", "🔐", "http://npm.PUBLIC_DOMAIN/"),
+    ("Home Assistant", "💡", "http://homeassistant.PUBLIC_DOMAIN/"),
+    ("Open WebUI", "🤖", "http://open-webui.PUBLIC_DOMAIN/"),
+    ("n8n", "🔀", "http://NAS_IP:5678/"),
+    ("Ollama", "🦙", "http://MINISFORUM_IP:11434/"),
+    ("NAS", "💾", "http://NAS_IP:8000/"),
+    ("Freebox", "📡", "http://mafreebox.freebox.fr/"),
+    ("Google Calendar", "📅", "https://calendar.google.com/"),
+    ("Streaming", "🎬", "#streaming"),
+    ("Docs", "📚", "#notes"),
+]
+PAYLOAD_CACHE = {"at": None, "payload": None}
+PAYLOAD_CACHE_SECONDS = int(os.environ.get("PAYLOAD_CACHE_SECONDS", "5"))
+
+
+def fetch_json(url, timeout=8, headers=None, data=None, method=None):
+    req = urllib.request.Request(url, headers=headers or {}, data=data, method=method)
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as response:
+        return json.loads(response.read().decode())
+
+
+def prometheus(query):
+    data = urllib.parse.urlencode({"query": query}).encode()
+    payload = fetch_json(f"{PROMETHEUS_URL}/api/v1/query", data=data)
+    if payload.get("status") != "success":
+        return []
+    return payload.get("data", {}).get("result") or []
+
+
+def value(result, default=0.0):
+    try:
+        return float(result[0]["value"][1])
+    except Exception:
+        return default
+
+
+def by_label(results, label):
+    output = {}
+    for item in results:
+        key = item.get("metric", {}).get(label)
+        if key:
+            output[key] = item
+    return output
+
+
+def servers():
+    names = sorted(by_label(prometheus("node_uname_info"), "server").keys())
+    cpu = by_label(prometheus('100 * (1 - avg by(server) (rate(node_cpu_seconds_total{mode="idle"}[5m])))'), "server")
+    mem = by_label(prometheus("100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))"), "server")
+    disk = by_label(prometheus('100 * (1 - sum by(server) (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}) / sum by(server) (node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}))'), "server")
+    load = by_label(prometheus("node_load1"), "server")
+    rx = by_label(prometheus('sum by(server) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|br-.*|docker.*"}[5m]))'), "server")
+    tx = by_label(prometheus('sum by(server) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*|br-.*|docker.*"}[5m]))'), "server")
+    temp = by_label(prometheus("max by(server) (node_hwmon_temp_celsius)"), "server")
+    services = by_label(prometheus('count by(server) (docker_container_state{state="running"})'), "server")
+    return [{
+        "name": name,
+        "cpu": round(value([cpu[name]]) if name in cpu else 0, 1),
+        "memory": round(value([mem[name]]) if name in mem else 0, 1),
+        "disk": round(value([disk[name]]) if name in disk else 0, 1),
+        "load": round(value([load[name]]) if name in load else 0, 2),
+        "rx": round(value([rx[name]]) / 1024, 1) if name in rx else 0,
+        "tx": round(value([tx[name]]) / 1024, 1) if name in tx else 0,
+        "temperature": round(value([temp[name]]) if name in temp else 0, 1),
+        "services": int(value([services[name]]) if name in services else 0),
+    } for name in names]
+
+
+def docker_services():
+    wud = prometheus('max by(server,name,image_name,image_tag_value,update_available,result_tag,status) (wud_containers)')
+    cpu = by_label(prometheus('sum by(name) (rate(docker_container_cpu_usage_seconds_total[5m]) * 100)'), "name")
+    mem = by_label(prometheus("max by(name) (docker_container_memory_usage_bytes)"), "name")
+    rows = []
+    for item in wud:
+        metric = item.get("metric", {})
+        name = metric.get("name", "")
+        rows.append({
+            "name": name,
+            "host": metric.get("server", ""),
+            "state": metric.get("status", "unknown"),
+            "image": f"{metric.get('image_name', '')}:{metric.get('image_tag_value', '')}",
+            "cpu": round(value([cpu[name]]) if name in cpu else 0, 2),
+            "memory": round((value([mem[name]]) if name in mem else 0) / 1024 / 1024, 1),
+            "update": metric.get("update_available") == "true",
+            "target": metric.get("result_tag", ""),
+        })
+    return sorted(rows, key=lambda row: (row["host"], row["name"].lower()))
+
+
+def wifi_clients():
+    if not ADGUARD_USERNAME or not ADGUARD_PASSWORD:
+        return []
+    token = base64.b64encode(f"{ADGUARD_USERNAME}:{ADGUARD_PASSWORD}".encode()).decode()
+    headers = {"Authorization": f"Basic {token}"}
+    clients = fetch_json(f"{ADGUARD_URL}/control/clients", headers=headers).get("clients") or []
+    rows = []
+    for client in clients:
+        ids = client.get("ids") or []
+        ip = next((item for item in ids if re.match(r"^\\d+\\.\\d+\\.\\d+\\.\\d+$", item)), "")
+        if ip:
+            rows.append({"name": client.get("name") or ip, "ip": ip})
+    return sorted(rows, key=lambda row: row["name"].lower())
+
+
+def freebox_api(path, session_token=None):
+    version_payload = fetch_json(f"{FREEBOX_URL}/api_version", timeout=5)
+    api_base = version_payload.get("api_base_url", "/api/")
+    api_version = int(float(version_payload.get("api_version", "8")))
+    url = f"{FREEBOX_URL}{api_base}v{api_version}/{path.lstrip('/')}"
+    headers = {}
+    if session_token:
+        headers["X-Fbx-App-Auth"] = session_token
+    return fetch_json(url, timeout=10, headers=headers)
+
+
+def freebox_session():
+    if FREEBOX_APP_TOKEN:
+        login = freebox_api("login/")
+        challenge = login.get("result", {}).get("challenge", "")
+        password = hmac.new(FREEBOX_APP_TOKEN.encode(), challenge.encode(), hashlib.sha1).hexdigest()
+        payload = json.dumps({"app_id": FREEBOX_APP_ID, "password": password}).encode()
+        version_payload = fetch_json(f"{FREEBOX_URL}/api_version", timeout=5)
+        api_base = version_payload.get("api_base_url", "/api/")
+        api_version = int(float(version_payload.get("api_version", "8")))
+        auth = fetch_json(
+            f"{FREEBOX_URL}{api_base}v{api_version}/login/session/",
+            headers={"Content-Type": "application/json"},
+            data=payload,
+            method="POST",
+        )
+        return auth.get("result", {}).get("session_token", "")
+    return ""
+
+
+def since_label(timestamp):
+    try:
+        then = dt.datetime.fromtimestamp(int(timestamp))
+    except Exception:
+        return ""
+    delta = dt.datetime.now() - then
+    minutes = int(delta.total_seconds() // 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    hours = minutes // 60
+    if hours < 48:
+        return f"{hours} h"
+    return f"{hours // 24} j"
+
+
+def split_ips(connectivities):
+    ipv4, ipv6 = [], []
+    for item in connectivities:
+        addr = item.get("addr", "")
+        if not addr:
+            continue
+        if ":" in addr:
+            ipv6.append(addr)
+        else:
+            ipv4.append(addr)
+    return ipv4, ipv6
+
+
+def lan_kind(interface, host):
+    text = " ".join([interface or "", host.get("host_type") or "", host.get("interface") or ""]).lower()
+    if "wifi" in text or "wi-fi" in text or "wlan" in text:
+        return "wifi"
+    return "lan"
+
+
+def wifi_band(interface, host):
+    text = " ".join([interface or "", json.dumps(host, ensure_ascii=False)]).lower()
+    if "6ghz" in text or "6 ghz" in text:
+        return "6 GHz"
+    if "5ghz" in text or "5 ghz" in text:
+        return "5 GHz"
+    if "2.4ghz" in text or "2.4 ghz" in text or "24ghz" in text:
+        return "2.4 GHz"
+    return ""
+
+
+def freebox_wifi_stations(session_token):
+    stations = {}
+    try:
+        access_points = freebox_api("wifi/ap/", session_token).get("result") or []
+    except Exception:
+        return stations
+    for ap in access_points:
+        ap_id = ap.get("id")
+        raw_band = str((ap.get("config") or {}).get("band") or ap.get("name") or "").lower()
+        if "2d4" in raw_band or "2.4" in raw_band or "2g" in raw_band:
+            band = "2.4 GHz"
+        elif "5" in raw_band:
+            band = "5 GHz"
+        elif "6" in raw_band:
+            band = "6 GHz"
+        else:
+            band = raw_band.upper() if raw_band else ""
+        try:
+            payload = freebox_api(f"wifi/ap/{ap_id}/stations/", session_token).get("result") or []
+        except Exception:
+            continue
+        for station in payload:
+            mac = (station.get("mac") or (station.get("host") or {}).get("l2ident", {}).get("id") or "").upper()
+            if mac:
+                stations[mac] = band
+    return stations
+
+
+def freebox_lan_devices():
+    try:
+        token = freebox_session()
+        if token:
+            interfaces = freebox_api("lan/browser/interfaces/", token).get("result") or []
+            wifi_stations = freebox_wifi_stations(token)
+            rows = []
+            for iface in interfaces:
+                name = iface.get("name") or iface.get("id") or "lan"
+                hosts = freebox_api(f"lan/browser/{urllib.parse.quote(name, safe='')}/", token).get("result") or []
+                for host in hosts:
+                    l2 = host.get("l2ident") or {}
+                    ips = host.get("l3connectivities") or []
+                    ipv4, ipv6 = split_ips(ips)
+                    online = any(ip.get("active") or ip.get("reachable") for ip in ips)
+                    last = max([ip.get("last_activity", 0) or 0 for ip in ips] or [0])
+                    mac = l2.get("id", "").upper()
+                    kind = "wifi" if mac in wifi_stations else lan_kind(name, host)
+                    rows.append({
+                        "name": host.get("primary_name") or host.get("host_type") or l2.get("id") or "inconnu",
+                        "ipv4": ", ".join(ipv4),
+                        "ipv6": ", ".join(ipv6),
+                        "mac": mac,
+                        "interface": name,
+                        "kind": kind,
+                        "band": wifi_stations.get(mac, "") or (wifi_band(name, host) if kind == "wifi" else ""),
+                        "online": online,
+                        "last": since_label(last),
+                        "lastMinutes": int((dt.datetime.now() - dt.datetime.fromtimestamp(last)).total_seconds() // 60) if last else None,
+                    })
+            return sorted(rows, key=lambda row: (not row["online"], row["name"].lower()))
+        if FREEBOX_USERNAME or FREEBOX_PASSWORD:
+            raw = f"{FREEBOX_USERNAME}:{FREEBOX_PASSWORD}".encode()
+            headers = {"Authorization": "Basic " + base64.b64encode(raw).decode()}
+            payload = fetch_json(f"{FREEBOX_URL}/api/v8/lan/browser/interfaces/", headers=headers)
+            return [{"name": "Freebox Basic Auth", "ipv4": "", "ipv6": "", "mac": "", "interface": "api", "kind": "lan", "band": "", "online": bool(payload), "last": "", "lastMinutes": None}]
+        return []
+    except Exception as exc:
+        return [{"name": f"Freebox API indisponible: {exc}", "ipv4": "", "ipv6": "", "mac": "", "interface": "freebox_app_token requis", "kind": "lan", "band": "", "online": False, "last": "", "lastMinutes": None}]
+
+
+def lan_summary(rows):
+    real_rows = [row for row in rows if not row["name"].startswith("Freebox API indisponible")]
+    online = [row for row in real_rows if row["online"]]
+    offline = [row for row in real_rows if not row["online"]]
+    wifi = [row for row in real_rows if row.get("kind") == "wifi"]
+    wired = [row for row in real_rows if row.get("kind") != "wifi"]
+    return {"online": len(online), "offline": len(offline), "wifi": len(wifi), "lan": len(wired)}
+
+
+def alertmanager_alerts():
+    payload = fetch_json(f"{ALERTMANAGER_URL}/api/v2/alerts", timeout=5)
+    rows = []
+    for item in payload if isinstance(payload, list) else []:
+        labels = item.get("labels") or {}
+        annotations = item.get("annotations") or {}
+        rows.append({
+            "id": "|".join([labels.get("alertname", ""), labels.get("server", ""), labels.get("name", ""), item.get("startsAt", "")]),
+            "name": labels.get("alertname", "alerte"),
+            "target": labels.get("name") or labels.get("instance") or labels.get("server") or "",
+            "status": (item.get("status") or {}).get("state", "active"),
+            "summary": annotations.get("summary") or annotations.get("description") or "",
+            "startsAt": item.get("startsAt", ""),
+        })
+    return sorted(rows, key=lambda row: row["startsAt"], reverse=True)[:20]
+
+
+def cached_daily(name, builder, force=False):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache = CACHE_DIR / name
+    today = dt.date.today().isoformat()
+    if cache.exists() and not force:
+        try:
+            payload = json.loads(cache.read_text())
+            if payload.get("date") == today:
+                return payload.get("items", [])
+        except Exception:
+            pass
+    items = builder()
+    cache.write_text(json.dumps({"date": today, "items": items}))
+    return items
+
+
+def streaming_from_feeds():
+    try:
+        feeds = json.loads(STREAMING_FEEDS_JSON or "{}")
+    except Exception:
+        feeds = {}
+    rows = []
+    for platform, items in feeds.items():
+        if isinstance(items, str):
+            items = [{"title": items}]
+        for item in items or []:
+            rows.append({
+                "platform": platform,
+                "title": item.get("title", ""),
+                "date": item.get("date", ""),
+                "source": "feed",
+                "type": item.get("type", "playlist"),
+            })
+    return rows
+
+
+def streaming_from_sonarr():
+    if not SONARR_URL or not SONARR_API_KEY:
+        return []
+    start = dt.date.today().isoformat()
+    end = (dt.date.today() + dt.timedelta(days=30)).isoformat()
+    url = f"{SONARR_URL}/api/v3/calendar?" + urllib.parse.urlencode({"start": start, "end": end, "includeSeries": "true"})
+    payload = fetch_json(url, headers={"X-Api-Key": SONARR_API_KEY})
+    rows = []
+    for item in payload if isinstance(payload, list) else []:
+        series = item.get("series") or {}
+        rows.append({
+            "platform": "Sonarr",
+            "title": f"{series.get('title', '')} S{item.get('seasonNumber', '')}E{item.get('episodeNumber', '')}",
+            "date": item.get("airDateUtc") or item.get("airDate", ""),
+            "source": "sonarr",
+            "type": "episode",
+        })
+    return rows
+
+
+def streaming_from_trakt():
+    if not TRAKT_CLIENT_ID:
+        return []
+    start = dt.date.today().isoformat()
+    url = f"https://api.trakt.tv/calendars/all/shows/{start}/30"
+    headers = {"trakt-api-version": "2", "trakt-api-key": TRAKT_CLIENT_ID, "Content-Type": "application/json"}
+    if TRAKT_ACCESS_TOKEN:
+        headers["Authorization"] = f"Bearer {TRAKT_ACCESS_TOKEN}"
+    payload = fetch_json(url, headers=headers)
+    platforms = ["Disney+", "Canal+", "Prime Video", "Netflix", "Crunchyroll"]
+    rows = []
+    for item in payload if isinstance(payload, list) else []:
+        show = item.get("show") or {}
+        episode = item.get("episode") or {}
+        rows.append({
+            "platform": "Trakt",
+            "title": f"{show.get('title', '')} S{episode.get('season', '')}E{episode.get('number', '')}",
+            "date": item.get("first_aired", ""),
+            "source": "trakt",
+            "type": "episode",
+            "providers": platforms,
+        })
+    return rows
+
+
+def streaming_from_betaseries():
+    if not BETASERIES_API_KEY:
+        return []
+    today = dt.date.today()
+    headers = {
+        "X-BetaSeries-Key": BETASERIES_API_KEY,
+        "X-BetaSeries-Version": "3.0",
+        "User-Agent": "homelab-dashboard",
+    }
+    if BETASERIES_TOKEN:
+        headers["X-BetaSeries-Token"] = BETASERIES_TOKEN
+    member_params = {"date": today.isoformat(), "days": 45}
+    if BETASERIES_USER_ID:
+        member_params["id"] = BETASERIES_USER_ID
+    if BETASERIES_LOGIN:
+        member_params["login"] = BETASERIES_LOGIN
+    urls = ["https://api.betaseries.com/planning/member?" + urllib.parse.urlencode(member_params)]
+    if not BETASERIES_USER_ID and not BETASERIES_LOGIN and not BETASERIES_TOKEN:
+        urls.append("https://api.betaseries.com/planning/general?" + urllib.parse.urlencode({"date": today.isoformat(), "days": 45}))
+    payload = None
+    for url in urls:
+        try:
+            payload = fetch_json(url, timeout=12, headers=headers)
+            break
+        except Exception:
+            payload = None
+    if not payload:
+        return []
+    episodes = payload.get("episodes") or payload.get("shows") or payload.get("planning") or []
+    rows = []
+    for item in episodes if isinstance(episodes, list) else []:
+        show = item.get("show") or {}
+        title = item.get("title") or item.get("episode_title") or item.get("code") or ""
+        show_title = show.get("title") or item.get("show_title") or item.get("series") or ""
+        date = item.get("date") or item.get("release_date") or item.get("airdate") or item.get("first_aired") or ""
+        if show_title and title:
+            title = f"{show_title} - {title}"
+        elif show_title:
+            title = show_title
+        if title:
+            rows.append({
+                "platform": "BetaSeries",
+                "title": title,
+                "date": date,
+                "source": "betaseries",
+                "type": "episode",
+            })
+    return rows
+
+
+def streaming_calendar(force=False):
+    def build():
+        rows = streaming_from_feeds() + streaming_from_sonarr() + streaming_from_trakt() + streaming_from_betaseries()
+        return sorted(rows, key=lambda row: row.get("date") or "9999")
+    return cached_daily("streaming-calendar.json", build, force=force)
+
+
+def weather():
+    cities = [
+        ("PRIMARY_CITY", 0.0, 0.0),
+        ("PRIMARY_CITY", 0.0, 0.0),
+        ("SECONDARY_CITY", 0.0, 0.0),
+    ]
+    output = []
+    for name, lat, lon in cities:
+        url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode({
+            "latitude": lat,
+            "longitude": lon,
+            "current": "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
+            "daily": "weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_probability_max,wind_speed_10m_max",
+            "timezone": "PRIMARY_TIMEZONE",
+        })
+        payload = fetch_json(url)
+        current = payload.get("current", {})
+        daily = payload.get("daily", {})
+        days = []
+        for idx, day in enumerate(daily.get("time") or []):
+            days.append({
+                "date": day,
+                "code": daily.get("weather_code", [None])[idx],
+                "tempMax": daily.get("temperature_2m_max", [None])[idx],
+                "tempMin": daily.get("temperature_2m_min", [None])[idx],
+                "uv": daily.get("uv_index_max", [None])[idx],
+                "rain": daily.get("precipitation_probability_max", [None])[idx],
+                "wind": daily.get("wind_speed_10m_max", [None])[idx],
+            })
+        output.append({
+            "city": name,
+            "temp": current.get("temperature_2m"),
+            "humidity": current.get("relative_humidity_2m"),
+            "wind": current.get("wind_speed_10m"),
+            "code": current.get("weather_code"),
+            "daily": days,
+        })
+    return output
+
+
+def parse_ical_date(raw):
+    raw = (raw or "").strip()
+    try:
+        if "T" in raw:
+            raw = raw.rstrip("Z")
+            return dt.datetime.strptime(raw[:15], "%Y%m%dT%H%M%S")
+        return dt.datetime.strptime(raw[:8], "%Y%m%d")
+    except Exception:
+        return None
+
+
+def parse_ical(url, limit=250):
+    if not url:
+        return []
+    text = urllib.request.urlopen(url, timeout=10).read().decode(errors="ignore")
+    events = []
+    for block in text.split("BEGIN:VEVENT")[1:]:
+        summary = re.search(r"SUMMARY(?:;[^:]*)?:(.*)", block)
+        start = re.search(r"DTSTART(?:;[^:]*)?:(\d{8}T?\d*)", block)
+        if summary and start:
+            parsed = parse_ical_date(start.group(1))
+            if parsed:
+                events.append({
+                    "title": summary.group(1).replace("\\,", ","),
+                    "start": parsed.isoformat(),
+                    "date": parsed.date().isoformat(),
+                    "time": parsed.strftime("%H:%M") if "T" in start.group(1) else "",
+                    "rawStart": start.group(1),
+                })
+    today = dt.date.today()
+    upcoming = [event for event in events if dt.date.fromisoformat(event["date"]) >= today]
+    return sorted(upcoming, key=lambda event: event["start"])[:limit]
+
+
+def api_payload(force=False):
+    now = dt.datetime.now()
+    if not force and PAYLOAD_CACHE["payload"] is not None and PAYLOAD_CACHE["at"] is not None:
+        if (now - PAYLOAD_CACHE["at"]).total_seconds() < PAYLOAD_CACHE_SECONDS:
+            return PAYLOAD_CACHE["payload"]
+    def safe(builder, default):
+        try:
+            return builder()
+        except Exception:
+            return default
+    lan = safe(freebox_lan_devices, [])
+    streaming = safe(lambda: streaming_calendar(force=force), [])
+    payload = {
+        "tools": [{"name": n, "icon": i, "url": u} for n, i, u in TOOLS],
+        "servers": safe(servers, []),
+        "docker": safe(docker_services, []),
+        "wifi": safe(wifi_clients, []),
+        "lan": lan,
+        "lanSummary": lan_summary(lan),
+        "weather": safe(weather, []),
+        "calendar": safe(lambda: parse_ical(GOOGLE_CALENDAR_ICAL_URL), []),
+        "alerts": safe(alertmanager_alerts, []),
+        "streaming": streaming,
+        "streamingFeedsConfigured": bool(streaming) or STREAMING_FEEDS_JSON not in ("", "{}"),
+        "generatedAt": dt.datetime.now().isoformat(),
+    }
+    payload["wudUpdates"] = [row for row in payload["docker"] if row["update"]]
+    PAYLOAD_CACHE["at"] = now
+    PAYLOAD_CACHE["payload"] = payload
+    return payload
+
+
+HTML = r"""<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Homelab</title>
+<style>
+:root{color-scheme:dark;--bg:#0c0e12;--panel:#151922;--panel2:#1b202b;--text:#eef2f7;--muted:#8d97aa;--line:#2a3140;--ok:#48d597;--warn:#ffbf47;--bad:#ff6b6b;--blue:#77a7ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,Segoe UI,sans-serif}
+.shell{display:grid;grid-template-columns:260px minmax(560px,1fr) 360px;height:100vh;overflow:hidden;transition:grid-template-columns .2s ease}
+.shell.left-hidden{grid-template-columns:0 minmax(560px,1fr) 360px}.shell.left-hidden .left{padding:0;border:0;overflow:hidden}
+aside{position:sticky;top:0;height:100vh;background:#10141c;border-right:1px solid var(--line);padding:18px;overflow:hidden}.left{overflow-y:auto}
+.right{border-left:1px solid var(--line);border-right:0;overflow-y:auto}
+main{height:100vh;overflow-y:auto;padding:18px 22px 60px}.left h1{padding-left:38px}.topbar h1{padding-left:38px}
+h1{font-size:22px;margin:0 0 16px}h2{font-size:15px;margin:0;color:#d8deea}.muted{color:var(--muted);font-size:12px}
+.topbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}.section-head{display:flex;justify-content:space-between;align-items:center;margin:22px 0 10px}.section-body.collapsed{display:none}.ghost{background:transparent}.left-toggle{position:fixed;left:10px;top:14px;z-index:5;width:32px;height:32px;padding:0}
+.tools{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.tool{height:56px;border:1px solid var(--line);background:var(--panel);border-radius:8px;text-decoration:none;color:var(--text);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}.tool b{font-size:13px}.tool span{font-size:10px;color:var(--muted);max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:12px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.server{display:grid;gap:10px}.row{display:flex;justify-content:space-between;gap:16px;align-items:center}.bar{height:8px;background:#262d3a;border-radius:99px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--ok));width:0}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.input,.select,textarea{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:8px;padding:8px 10px;min-width:150px}.notes{width:100%;min-width:0;height:180px;resize:none;margin-top:14px}.alert{padding:8px 0;border-bottom:1px solid var(--line)}.alert:last-child{border-bottom:0}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px}.stat{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px}.stat b{display:block;font-size:22px}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px;font-size:13px}th{color:var(--muted);font-weight:600;background:#111722;cursor:pointer}tr:last-child td{border-bottom:0}.pill{border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:12px}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.clock{font-size:34px;font-weight:700}.tz{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.tz.small .clock{font-size:22px}.weather-card{cursor:pointer}.weather-simple{display:flex;justify-content:space-between;align-items:center;gap:8px}.weather-icon{font-size:26px}.weather-details{display:none;margin-top:8px}.weather-card.open .weather-details{display:block}.calendar-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}.calendar-title{font-weight:700}.month{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.weekday{font-size:11px;color:var(--muted);text-align:center}.day{height:32px;border:1px solid var(--line);border-radius:6px;display:grid;place-items:center;color:var(--muted);cursor:pointer}.day.has-events{border-color:var(--blue);color:var(--text)}.day.selected{background:#2d4773;color:var(--text);border-color:#77a7ff}.today{background:#243758;color:var(--text);border-color:#3c72c9}.meeting{display:block;padding:8px 0;border-bottom:1px solid var(--line)}.meeting:last-child{border-bottom:0}.timer{display:grid;place-items:center;gap:12px}.timer strong{font-size:42px}.btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:8px;padding:8px 12px;cursor:pointer}
+@media(max-width:1100px){.shell{grid-template-columns:1fr;height:auto;overflow:auto}aside,.right,main{position:static;height:auto;overflow:visible}.tools{grid-template-columns:repeat(4,70px)}}
+</style>
+</head>
+<body><button class="btn ghost left-toggle" onclick="toggleLeft()">☰</button><div class="shell" id="shell">
+<aside class="left"><h1>Homelab</h1><div class="muted">Outils installés</div><div id="tools" class="tools"></div><h2 style="margin-top:18px">Notifications</h2><div class="filters"><button class="btn" onclick="clearSelectedAlerts()">Clear</button><button class="btn" onclick="clearAllAlerts()">Clear all</button></div><div class="card" id="alerts"></div><h2 id="notesTitle" style="margin-top:18px">Bloc note</h2><textarea id="notes" class="notes" placeholder="Notes locales..." oninput="saveNotes()"></textarea></aside>
+<main>
+<div class="topbar"><h1>Vue d’ensemble</h1><div class="filters"><select id="refresh" class="btn" onchange="setRefresh(this.value)"><option value="1000">1s</option><option value="5000" selected>5s</option><option value="15000">15s</option><option value="30000">30s</option><option value="60000">1min</option></select><button class="btn" onclick="load(true)">Refresh maintenant</button></div></div>
+<section><div class="section-head"><h2>Serveurs</h2><button class="btn ghost" onclick="toggleSection('serversBlock')">Rétracter</button></div><div id="serversBlock" class="section-body"><div id="servers" class="grid"></div></div></section>
+<section><div class="section-head"><h2>LAN Freebox</h2><button class="btn ghost" onclick="toggleSection('lanBlock')">Rétracter</button></div><div id="lanBlock" class="section-body"><div class="stats" id="lanStats"></div><div class="filters"><input id="lanSearch" class="input" placeholder="Rechercher LAN" oninput="renderLan()"><select id="lanState" class="select" onchange="renderLan()"><option value="all">Tous</option><option value="online">Online</option><option value="offline">Offline</option><option value="wifi">WiFi</option><option value="lan">LAN</option></select></div><div class="card"><table><thead><tr><th onclick="sortBy('lan','name')">Nom DNS</th><th onclick="sortBy('lan','kind')">Réseau</th><th onclick="sortBy('lan','band')">Bande</th><th onclick="sortBy('lan','ipv4')">IPv4</th><th onclick="sortBy('lan','ipv6')">IPv6</th><th onclick="sortBy('lan','mac')">MAC</th><th onclick="sortBy('lan','online')">Activité</th></tr></thead><tbody id="lan"></tbody></table></div></div></section>
+<section><div class="section-head"><h2>Utilisateurs WiFi / DNS AdGuard</h2><button class="btn ghost" onclick="toggleSection('wifiBlock')">Rétracter</button></div><div id="wifiBlock" class="section-body"><div class="card"><table><thead><tr><th onclick="sortBy('wifi','name')">Nom</th><th onclick="sortBy('wifi','ip')">IP</th></tr></thead><tbody id="wifi"></tbody></table></div></div></section>
+<section><div class="section-head"><h2>Services Docker</h2><button class="btn ghost" onclick="toggleSection('dockerBlock')">Rétracter</button></div><div id="dockerBlock" class="section-body"><div class="filters"><input id="dockerSearch" class="input" placeholder="Rechercher service" oninput="renderDocker()"><select id="dockerHost" class="select" onchange="renderDocker()"><option value="all">Tous les hosts</option></select><select id="dockerState" class="select" onchange="renderDocker()"><option value="all">Tous les états</option><option value="running">Running</option><option value="not-running">Non running</option><option value="updates">Updates WUD</option></select></div><table><thead><tr><th onclick="sortBy('docker','name')">Service</th><th onclick="sortBy('docker','host')">Host</th><th onclick="sortBy('docker','state')">State</th><th onclick="sortBy('docker','cpu')">CPU</th><th onclick="sortBy('docker','memory')">RAM</th><th onclick="sortBy('docker','image')">Image</th><th onclick="sortBy('docker','update')">WUD</th></tr></thead><tbody id="docker"></tbody></table></div></section>
+<section id="streaming"><div class="section-head"><h2>Streaming</h2><button class="btn ghost" onclick="toggleSection('streamingBlock')">Rétracter</button></div><div id="streamingBlock" class="section-body"><div class="filters"><input id="streamingSearch" class="input" placeholder="Rechercher sortie" oninput="renderStreaming()"><select id="streamingPlatform" class="select" onchange="renderStreaming()"><option value="all">Toutes plateformes</option></select></div><div class="card"><table><thead><tr><th>Date</th><th>Plateforme</th><th>Titre</th><th>Source</th></tr></thead><tbody id="streamingRows"></tbody></table></div></div></section>
+</main>
+<aside class="right">
+<div class="card"><div class="tz"><span>🇫🇷 France</span><div class="clock" id="clock">--:--</div></div><div class="muted" id="date"></div><div class="tz small" style="margin-top:8px"><span>🇲🇽 SECONDARY_CITY</span><div class="clock" id="clockMexico">--:--</div></div></div>
+<h2>Météo</h2><div id="weather"></div>
+<h2>Calendrier</h2><div class="card"><div class="calendar-head"><button class="btn ghost" onclick="moveCalendar(-1)">‹</button><div class="calendar-title" id="calendarTitle"></div><button class="btn ghost" onclick="moveCalendar(1)">›</button></div><div class="filters"><select id="calendarView" class="select" onchange="setCalendarView(this.value)"><option value="day">Jour</option><option value="week">Semaine</option><option value="month" selected>Mois</option></select><button class="btn" onclick="selectDate(new Date())">Aujourd'hui</button></div><div class="month" id="month"></div></div>
+<h2>Réunions</h2><div class="card" id="meetings"></div>
+<h2>Focus</h2><div class="card timer"><strong id="timer">25:00</strong><div><button class="btn" onclick="toggleTimer()">Start</button><button class="btn" onclick="resetTimer()">Reset</button></div></div>
+</aside>
+</div>
+<script>
+let focus=25*60, running=false, tick=null, refreshTimer=null, refreshMs=Number(localStorage.getItem('refreshMs')||5000), state={lan:[],docker:[],wifi:[],streaming:[],lanSummary:{},calendar:[],weather:[],alerts:[]}, selectedDate=new Date(), calendarCursor=new Date(), calendarMode=localStorage.getItem('calendarMode')||'month', sortState={lan:['name',1],docker:['name',1],wifi:['name',1]};
+function saveNotes(){localStorage.setItem('homelabNotes',notes.value)}
+function toggleLeft(){shell.classList.toggle('left-hidden');localStorage.setItem('leftHidden',shell.classList.contains('left-hidden')?'1':'0')}
+function toggleSection(id){const el=document.getElementById(id);el.classList.toggle('collapsed');localStorage.setItem('collapsed:'+id,el.classList.contains('collapsed')?'1':'0')}
+function restoreUi(){notes.value=localStorage.getItem('homelabNotes')||'';if(localStorage.getItem('leftHidden')==='1')shell.classList.add('left-hidden');['serversBlock','lanBlock','wifiBlock','dockerBlock','streamingBlock'].forEach(id=>{if(localStorage.getItem('collapsed:'+id)==='1')document.getElementById(id).classList.add('collapsed')})}
+function fmt(n){return String(Math.floor(n)).padStart(2,'0')}
+function isoDate(d){return `${d.getFullYear()}-${fmt(d.getMonth()+1)}-${fmt(d.getDate())}`}
+function dateOnly(v){const [y,m,d]=v.split('-').map(Number);return new Date(y,m-1,d)}
+function sameDay(a,b){return isoDate(a)===isoDate(b)}
+function setClock(){const d=new Date();clock.textContent=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'PRIMARY_TIMEZONE'});clockMexico.textContent=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'SECONDARY_TIMEZONE'});date.textContent=d.toLocaleDateString('fr-FR',{weekday:'long',day:'2-digit',month:'long',timeZone:'PRIMARY_TIMEZONE'});renderCalendar()}
+function selectDate(d){selectedDate=new Date(d.getFullYear(),d.getMonth(),d.getDate());calendarCursor=new Date(selectedDate);renderCalendar();renderMeetings();renderWeather(state.weather)}
+function setCalendarView(mode){calendarMode=mode;localStorage.setItem('calendarMode',mode);renderCalendar();renderMeetings();renderWeather(state.weather)}
+function moveCalendar(step){if(calendarMode==='month')calendarCursor=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth()+step,1);else{calendarCursor=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth(),calendarCursor.getDate()+step*(calendarMode==='week'?7:1));if(calendarMode==='day')selectedDate=new Date(calendarCursor)}renderCalendar();renderMeetings();renderWeather(state.weather)}
+function eventsOn(day){const iso=isoDate(day);return state.calendar.filter(e=>e.date===iso)}
+function renderCalendar(){calendarView.value=calendarMode;const today=new Date(), days=['L','M','M','J','V','S','D'];let cells=[];if(calendarMode==='month'){const first=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth(),1), last=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth()+1,0);calendarTitle.textContent=first.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});for(const d of days)cells.push(`<div class="weekday">${d}</div>`);for(let i=1;i<(first.getDay()||7);i++)cells.push('<div></div>');for(let day=1;day<=last.getDate();day++){const cur=new Date(first.getFullYear(),first.getMonth(),day);cells.push(dayCell(cur,String(day),today))}}else if(calendarMode==='week'){const base=new Date(calendarCursor), monday=new Date(base);monday.setDate(base.getDate()-((base.getDay()+6)%7));const sunday=new Date(monday);sunday.setDate(monday.getDate()+6);calendarTitle.textContent=`${monday.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})} - ${sunday.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})}`;for(const d of days)cells.push(`<div class="weekday">${d}</div>`);for(let i=0;i<7;i++){const cur=new Date(monday);cur.setDate(monday.getDate()+i);cells.push(dayCell(cur,String(cur.getDate()),today))}}else{calendarTitle.textContent=selectedDate.toLocaleDateString('fr-FR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});cells.push(dayCell(selectedDate,selectedDate.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit'}),today))}month.innerHTML=cells.join('')}
+function dayCell(cur,label,today){const has=eventsOn(cur).length>0;return `<button class="day ${sameDay(cur,today)?'today':''} ${sameDay(cur,selectedDate)?'selected':''} ${has?'has-events':''}" onclick="selectDate(new Date(${cur.getFullYear()},${cur.getMonth()},${cur.getDate()}))">${label}</button>`}
+function renderMeetings(){const now=new Date(), nowIso=isoDate(now), selectedIso=isoDate(selectedDate);let rows=state.calendar.filter(e=>selectedIso===nowIso?new Date(e.start)>=now:e.date===selectedIso);meetings.innerHTML=rows.length?rows.slice(0,12).map(e=>`<div class="meeting"><div>${e.title}</div><div class="muted">${dateOnly(e.date).toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'short'})} ${e.time||'journée'}</div></div>`).join(''):'Aucune réunion à afficher pour cette date.'}
+function weatherIcon(code){code=Number(code);if(code===0)return '☀️';if([1,2].includes(code))return '🌤️';if(code===3)return '☁️';if([45,48].includes(code))return '🌫️';if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code))return '🌧️';if([71,73,75,77,85,86].includes(code))return '❄️';if([95,96,99].includes(code))return '⛈️';return '🌡️'}
+function weatherForDate(w){const iso=isoDate(selectedDate);return (w.daily||[]).find(d=>d.date===iso)||null}
+function renderWeather(data){weather.innerHTML=(data||[]).map((w,idx)=>{const day=weatherForDate(w);const temp=day&&day.tempMax!==null?`${Math.round(day.tempMin)}° / ${Math.round(day.tempMax)}°C`:`${w.temp}°C`;const code=day&&day.code!==null?day.code:w.code;return `<div class="card weather-card" onclick="this.classList.toggle('open')"><div class="weather-simple"><b>${w.city}</b><span><span class="weather-icon">${weatherIcon(code)}</span> ${temp}</span></div><div class="weather-details muted"><div>Date : ${isoDate(selectedDate)}</div><div>Humidité actuelle : ${w.humidity??'n/a'}%</div><div>Vent actuel : ${w.wind??'n/a'} km/h</div><div>Vent prévu : ${day?.wind??'n/a'} km/h</div><div>UV : ${day?.uv??'n/a'}</div><div>Pluie : ${day?.rain??'n/a'}%</div></div></div>`}).join('')}
+function toggleTimer(){running=!running;if(running&&!tick)tick=setInterval(()=>{focus=Math.max(0,focus-1);drawTimer();if(!focus)running=false},1000)}
+function resetTimer(){focus=25*60;running=false;drawTimer()}function drawTimer(){timer.textContent=`${fmt(focus/60)}:${fmt(focus%60)}`}
+function bar(label,v){return `<div><div class="row"><span>${label}</span><span>${v}</span></div><div class="bar"><i style="width:${Math.min(100,Math.max(0,parseFloat(v)||0))}%"></i></div></div>`}
+function matchText(row,q){return JSON.stringify(row).toLowerCase().includes(q.toLowerCase())}
+function sortedRows(rows,key){const [field,dir]=sortState[key]||['name',1];return [...rows].sort((a,b)=>{let av=a[field]??'',bv=b[field]??'';if(typeof av==='number'||typeof bv==='number')return ((Number(av)||0)-(Number(bv)||0))*dir;return String(av).localeCompare(String(bv),'fr',{numeric:true})*dir})}
+function sortBy(key,field){const cur=sortState[key]||[field,1];sortState[key]=[field,cur[0]===field?-cur[1]:1];({lan:renderLan,docker:renderDocker,wifi:renderWifi}[key]||(()=>{}))()}
+function renderLan(){const q=lanSearch.value.trim(), mode=lanState.value;let rows=state.lan.filter(r=>!q||matchText(r,q));if(mode==='online')rows=rows.filter(r=>r.online);if(mode==='offline')rows=rows.filter(r=>!r.online);if(mode==='wifi')rows=rows.filter(r=>r.kind==='wifi');if(mode==='lan')rows=rows.filter(r=>r.kind!=='wifi');rows=sortedRows(rows,'lan');lan.innerHTML=(rows.length?rows:[{name:'Aucun équipement',ipv4:'',ipv6:'',mac:'',kind:'',band:'',online:false,last:''}]).map(c=>`<tr><td>${c.name}</td><td>${c.kind||''}</td><td>${c.band||''}</td><td>${c.ipv4||''}</td><td>${c.ipv6||''}</td><td>${c.mac||''}</td><td class="${c.online?'ok':'muted'}">${c.online?'online':'offline'} ${c.last?('depuis '+c.last):''}</td></tr>`).join('')}
+function renderDocker(){const q=dockerSearch.value.trim(), host=dockerHost.value, mode=dockerState.value;let rows=state.docker.filter(c=>(!q||matchText(c,q))&&(host==='all'||c.host===host));if(mode==='running')rows=rows.filter(c=>c.state==='running');if(mode==='not-running')rows=rows.filter(c=>c.state!=='running');if(mode==='updates')rows=rows.filter(c=>c.update);rows=sortedRows(rows,'docker');docker.innerHTML=rows.map(c=>`<tr><td>${c.name}</td><td>${c.host}</td><td class="${c.state==='running'?'ok':'bad'}">${c.state}</td><td>${c.cpu}%</td><td>${c.memory} MiB</td><td>${c.image}</td><td class="${c.update?'warn':'ok'}">${c.update?'update '+c.target:'ok'}</td></tr>`).join('')}
+function renderWifi(){wifi.innerHTML=(sortedRows(state.wifi,'wifi').length?sortedRows(state.wifi,'wifi'):[{name:'Aucun client AdGuard nommé',ip:'API ou clients à compléter'}]).map(c=>`<tr><td>${c.name}</td><td>${c.ip}</td></tr>`).join('')}
+function clearedAlerts(){try{return JSON.parse(localStorage.getItem('clearedAlerts')||'[]')}catch(e){return []}}
+function saveCleared(ids){localStorage.setItem('clearedAlerts',JSON.stringify([...new Set(ids)]))}
+function renderAlerts(){const cleared=clearedAlerts();const rows=(state.alerts||[]).filter(a=>!cleared.includes(a.id));alerts.innerHTML=rows.length?rows.map(a=>`<label class="alert"><input type="checkbox" value="${a.id}"> <b>${a.name}</b><div class="muted">${a.target||''} ${a.summary||''}</div></label>`).join(''):'Aucune alerte active.'}
+function clearSelectedAlerts(){saveCleared(clearedAlerts().concat([...alerts.querySelectorAll('input:checked')].map(i=>i.value)));renderAlerts()}
+function clearAllAlerts(){saveCleared(clearedAlerts().concat((state.alerts||[]).map(a=>a.id)));renderAlerts()}
+function renderStreaming(){const q=streamingSearch.value.trim(), platform=streamingPlatform.value;let rows=state.streaming.filter(s=>(!q||matchText(s,q))&&(platform==='all'||s.platform===platform));streamingRows.innerHTML=(rows.length?rows:[{date:'',platform:'-',title:'Configure Trakt, Sonarr, TMDB/JustWatch ou un flux JSON dans le Vault.',source:'config'}]).map(s=>`<tr><td>${s.date||''}</td><td>${s.platform||''}</td><td>${s.title||''}</td><td>${s.source||''}</td></tr>`).join('')}
+async function load(force=false){const r=await fetch('/api/dashboard'+(force?'?force=1':''));const d=await r.json();state={lan:d.lan||[],docker:d.docker||[],wifi:d.wifi||[],streaming:d.streaming||[],lanSummary:d.lanSummary||{},calendar:d.calendar||[],weather:d.weather||[],alerts:d.alerts||[]};tools.innerHTML=d.tools.map(t=>`<a class="tool" href="${t.url}" target="_blank"><b>${t.icon}</b><span>${t.name}</span></a>`).join('');
+servers.innerHTML=d.servers.map(s=>`<div class="card server"><div class="row"><b>${s.name}</b><span class="pill">${s.services} services</span></div>${bar('CPU',s.cpu+'%')}${bar('RAM',s.memory+'%')}${bar('Disk',s.disk+'%')}<div class="row muted"><span>Load ${s.load}</span><span>Net ↓${s.rx} ↑${s.tx} KiB/s</span></div><div class="row muted"><span>Température</span><span>${s.temperature?s.temperature+'°C':'n/a'}</span></div></div>`).join('');
+lanStats.innerHTML=`<div class="stat"><span>Connectés</span><b class="ok">${state.lanSummary.online||0}</b></div><div class="stat"><span>Offline</span><b>${state.lanSummary.offline||0}</b></div><div class="stat"><span>WiFi</span><b>${state.lanSummary.wifi||0}</b></div><div class="stat"><span>LAN</span><b>${state.lanSummary.lan||0}</b></div>`;
+renderAlerts();renderWifi();
+const currentHost=dockerHost.value;dockerHost.innerHTML='<option value="all">Tous les hosts</option>'+[...new Set(state.docker.map(c=>c.host))].sort().map(h=>`<option value="${h}">${h}</option>`).join('');dockerHost.value=[...dockerHost.options].some(o=>o.value===currentHost)?currentHost:'all';renderLan();renderDocker();
+renderWeather(state.weather);
+renderCalendar();renderMeetings();
+const currentPlatform=streamingPlatform.value;streamingPlatform.innerHTML='<option value="all">Toutes plateformes</option>'+[...new Set(state.streaming.map(s=>s.platform).filter(Boolean))].sort().map(p=>`<option value="${p}">${p}</option>`).join('');streamingPlatform.value=[...streamingPlatform.options].some(o=>o.value===currentPlatform)?currentPlatform:'all';renderStreaming();
+}
+function setRefresh(ms){refreshMs=Number(ms);localStorage.setItem('refreshMs',String(refreshMs));if(refreshTimer)clearInterval(refreshTimer);refreshTimer=setInterval(load,refreshMs);load()}
+restoreUi();setInterval(setClock,10000);setClock();drawTimer();refresh.value=String(refreshMs);setRefresh(refreshMs);
+</script></body></html>"""
+
+
+class Handler(BaseHTTPRequestHandler):
+    def respond(self, status, body, content_type="application/json"):
+        raw = body if isinstance(body, bytes) else body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_GET(self):
+        if self.path == "/" or self.path.startswith("/dashboard"):
+            self.respond(200, HTML, "text/html; charset=utf-8")
+            return
+        if self.path.startswith("/api/dashboard"):
+            try:
+                force = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("force") == ["1"]
+                self.respond(200, json.dumps(api_payload(force=force)))
+            except Exception as exc:
+                self.respond(500, json.dumps({"error": str(exc)}))
+            return
+        self.respond(404, json.dumps({"error": "not found"}))
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+
+
+if __name__ == "__main__":
+    ThreadingHTTPServer(("0.0.0.0", 8780), Handler).serve_forever()

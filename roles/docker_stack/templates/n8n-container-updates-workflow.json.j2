@@ -1,0 +1,100 @@
+{
+  "name": "Homelab - Container updates",
+  "id": "homelab-container-updates",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "7f0c8df8-8f4a-46f4-81d5-2f9bb605117a",
+      "name": "Toutes les 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://homelab-updater:8765/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Homelab-Token",
+              "value": {{ sandbox_runner_api_key | to_json }}
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "2a519e1a-bb91-463d-bf0a-aa6467c8f975",
+      "name": "Lancer les migrations supportées",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{ ollama_base_url }}/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"mistral-small:24b\",\"stream\":false,\"prompt\":\"Resume en une phrase courte ce resultat de workflow homelab, sans inventer: \" + JSON.stringify($json)}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "7ad19981-5efe-4e35-a455-604823612936",
+      "name": "Résumé Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Toutes les 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Lancer les migrations supportées",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lancer les migrations supportées": {
+      "main": [
+        [
+          {
+            "node": "Résumé Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

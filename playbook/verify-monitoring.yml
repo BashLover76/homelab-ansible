@@ -12,6 +12,11 @@
         url: http://127.0.0.1:9090/api/v1/targets
         timeout: 10
       register: targets
+      retries: 5
+      delay: 3
+      until:
+        - targets.json.data.activeTargets | length >= 8
+        - targets.json.data.activeTargets | rejectattr('health', 'equalto', 'up') | list | length == 0
     - name: Exiger des cibles toutes disponibles
       ansible.builtin.assert:
         that:

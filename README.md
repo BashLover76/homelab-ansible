@@ -25,13 +25,13 @@ flowchart TB
 
   subgraph NAS["NAS Asustor — NAS_IP"]
     ADG[AdGuard ADM<br/>DNS 53 · administration 8030]
-    PI[Pi-hole<br/>DNS 5353 · administration 8082]
     NPM[Nginx Proxy Manager<br/>80 · 443 · administration 81]
     HOM[Homarr · 7575]
     GRA[Grafana · 3000]
     PROM[Prometheus · 9090]
     AM[Alertmanager · 9093]
     WUD[WUD NAS · 3050]
+    UPD[homelab-updater<br/>API interne · 8765]
     EXP[Node Exporter 9100<br/>cAdvisor 8081<br/>Docker exporter 9417]
     HA[Home Assistant ADM · 8123]
     N8N[n8n client · 5678]
@@ -42,6 +42,7 @@ flowchart TB
     ANS[Contrôleur Ansible sous WSL<br/>Vault et autorité TLS locale]
     OLL[Ollama Windows · 11434]
     OW[Open WebUI · 3100]
+    DASH[Dashboard homelab · 8780]
     MWUD[WUD local · 3051]
     MEXP[Node Exporter 9100<br/>cAdvisor 8081<br/>Docker exporter 9417]
     QUOTA[Collecteurs personnels<br/>Codex 5 min · Copilot horaire]
@@ -49,18 +50,21 @@ flowchart TB
   end
 
   CLIENT -->|DNS si configuré sur le client| ADG
-  ADG -->|requêtes publiques| PI
-  PI -->|amonts publics| EXT
+  ADG -->|amonts publics DoH| EXT
   ADG -.->|wildcard local vers le NAS| NPM
   CLIENT -->|HTTP ou HTTPS| NPM
   NPM --> HOM & GRA & PROM & AM & WUD & ADG & PI & HA
-  NPM --> OW
+  NPM --> OW & DASH
   GRA -->|PromQL| PROM
   PROM -->|collecte 15 secondes| EXP & MEXP & WUD & MWUD
   PROM -->|alertes| AM
+  N8N -->|déclenche toutes les 15 minutes| UPD
+  UPD -->|lit les propositions| PROM
+  UPD -->|candidate, test, promotion| PI
   AM -->|SMTP STARTTLS| EXT
   OW -->|API modèles| OLL
-  N8N -.->|chaîne à finaliser| SAN
+  N8N -.->|sandbox IA| SAN
+  N8N -->|résumé workflow| OLL
   QUOTA -->|textfile| MEXP
   QUOTA -->|API authentifiées| EXT
   ANS -->|SSH et sudo| NAS
@@ -86,23 +90,23 @@ Ajouter `.PUBLIC_DOMAIN` aux noms suivants. Les dix routes sont gérées par `pl
 | --- | --- | --- |
 | `npm` | NAS:81 | Administration NPM |
 | `homarr` | NAS:7575 | Portail |
+| `dashboard` | Minisforum:8780 | Dashboard homelab synthétique, intégrable dans Homarr |
 | `grafana` | NAS:3000 | Dashboards |
 | `prometheus` | NAS:9090 | Métriques, règles et cibles |
 | `alertmanager` | NAS:9093 | Alertes et silences |
 | `wud` | NAS:3050 | Images et mises à jour |
 | `adguard` | NAS:8030 | DNS ADM |
-| `pihole` | NAS:8082 | Filtrage DNS |
 | `homeassistant` | NAS:8123 | Domotique ; proxy applicatif à valider |
 | `open-webui` | Minisforum:3100 | Interface Ollama |
 
-n8n expose 5678 ; ses routes peuvent être gérées par le rôle global selon ses variables, mais ne font pas partie des dix routes de `proxy.yml`. Les ports 8081, 9100, 9417 et 3051 servent à la collecte. Le candidat Alertmanager écoute uniquement sur `127.0.0.1:19093` du NAS.
+n8n expose 5678 ; ses routes peuvent être gérées par le rôle global selon ses variables, mais ne font pas partie des dix routes de `proxy.yml`. `homelab-updater` n'expose aucun port Freebox ni host : il est joignable uniquement depuis le réseau Docker interne `homelab_internal`, notamment par n8n. Les ports 8081, 9100, 9417 et 3051 servent à la collecte. Le candidat Alertmanager écoute uniquement sur `127.0.0.1:19093` du NAS.
 
 ## 3. Organisation du dépôt
 
 ```text
 homelab-ansible/
 ├── playbook.yml                 # Déploiement global, conservé à la racine
-├── playbook/                    # 16 playbooks spécialisés
+├── playbook/                    # 21 playbooks spécialisés
 ├── ansible.cfg                  # Inventaire, rôles et chemin du mot de passe Vault
 ├── inventory.yml                # Local, non versionné
 ├── group_vars/ et host_vars/    # Variables locales et secrets chiffrés
@@ -125,14 +129,18 @@ Les playbooks spécialisés utilisent `playbook_dir/..` pour les ressources du d
 | --- | --- | --- |
 | `playbook.yml` | Déployer les `services_list` et afficher un récapitulatif | Déploiement global avec post-configurations |
 | `playbook/operations.yml` | Déployer `selected_services` sur `target_hosts` | NPM désactivé par défaut ; privilégier les profils `config/` |
+| `config/homarr-dashboard.yml` | Déployer uniquement le dashboard Homarr local | Sert `dashboard.PUBLIC_DOMAIN` |
 | `playbook/audit.yml` | Examiner endpoints ADM, Ollama, Open WebUI et WUD | Diagnostic tolérant aux erreurs, pas un test strict |
 | `playbook/verify-monitoring.yml` | Valider Prometheus, au moins huit cibles UP, neuf séries et Alertmanager | Lecture et vérifications strictes |
+| `playbook/verify-update-automation.yml` | Valider n8n, le runner de mise à jour et Ollama | Déclenche le runner sans mise à jour si rien n'est proposé |
 | `playbook/vault-readiness.yml` | Vérifier la présence des paramètres | Affiche uniquement des booléens |
 | `playbook/npm-audit.yml` | Lire routes et identifiants de certificats | Authentification puis lecture |
 | `playbook/pki.yml` | Créer/renouveler TLS et importer dans NPM | Conserver impérativement la CA existante |
 | `playbook/proxy.yml` | Réconcilier dix sous-domaines et leur certificat | Préserve les réglages non remplacés explicitement |
 | `playbook/adguard-audit.yml` | Lire amonts et réécritures DNS | Aucun changement DNS |
-| `playbook/adguard-configure.yml` | Tester Pi-hole, sauvegarder et modifier l'amont AdGuard | Modification DNS LAN, aucune installation ADM |
+| `playbook/adguard-configure.yml` | Sauvegarder et configurer AdGuard avec des amonts publics DoH | Modification DNS LAN, aucune installation ADM |
+| `playbook/remove-pihole.yml` | Arrêter Pi-hole, supprimer ses conteneurs résiduels et retirer son proxy NPM | Conserve `/volume1/Docker/pihole` pour rollback manuel |
+| `playbook/freebox-authorize.yml` | Demander un `freebox_app_token` Freebox OS | Nécessite validation physique sur la Freebox |
 | `playbook/windows-dns.yml` | Auditer les DNS Windows | Applique seulement avec `windows_dns_apply=true` et droits admin |
 | `playbook/homeassistant-audit.yml` | Lire les intégrations existantes | Limité aux domaines et titres des intégrations |
 | `playbook/homeassistant-auth-check.yml` | Tester le compte HA du Vault | Lire `authentication` et `errors` ; un récapitulatif Ansible sans échec ne prouve pas l'authentification |
@@ -140,6 +148,7 @@ Les playbooks spécialisés utilisent `playbook_dir/..` pour les ressources du d
 | `playbook/test-alert-email.yml` | Injecter une alerte temporaire et vérifier SMTP | Envoie réellement un e-mail, puis éventuellement sa résolution |
 | `playbook/backup-config.yml` | Créer une archive de configuration | Non idempotent par nature ; contient des secrets |
 | `playbook/update-alertmanager.yml` | Tester et promouvoir la proposition WUD | Arrêt bref ; Alertmanager uniquement |
+| `playbook/schedule-container-updates.yml` | Installer le cron local des pipelines supportés | Dépend du contrôleur WSL actif |
 
 ## 5. Commandes d'exploitation
 
@@ -153,10 +162,14 @@ ansible-playbook playbook.yml
 ansible-playbook playbook/operations.yml -e @config/monitoring-nas.yml
 ansible-playbook playbook/operations.yml -e @config/monitoring-minisforum.yml
 ansible-playbook playbook/operations.yml -e @config/alertmanager.yml
+ansible-playbook playbook/operations.yml -e @config/update-automation.yml
+ansible-playbook playbook/operations.yml -e @config/grafana.yml
+ansible-playbook playbook/operations.yml -e @config/homarr-dashboard.yml
 
 # Quotas et contrôles
 ansible-playbook playbook/quota-collectors.yml
 ansible-playbook playbook/verify-monitoring.yml
+ansible-playbook playbook/verify-homarr-dashboard.yml
 ansible-playbook playbook/vault-readiness.yml
 
 # TLS puis routes
@@ -174,23 +187,25 @@ ansible-playbook playbook/windows-dns.yml -e windows_dns_apply=true
 ansible-playbook playbook/backup-config.yml
 ansible-playbook playbook/test-alert-email.yml
 ansible-playbook playbook/update-alertmanager.yml
+ansible-playbook playbook/verify-update-automation.yml
 ```
 
 `-i inventory.yml` reste utilisable explicitement. Ajouter `--ask-become-pass` si sudo n'est pas fourni par le Vault. Pour un profil supplémentaire, créer un YAML avec `target_hosts: nas` et, par exemple, `selected_services: [grafana]` : une **liste**, pas une chaîne.
 
-Le profil NAS sélectionne Alertmanager, Prometheus, WUD, Pi-hole et Grafana. Le profil Minisforum sélectionne WUD agent et Open WebUI. Les exporters sont aussi déployables via les listes de l'inventaire ; `quota-collectors.yml` réconcilie Node Exporter sur le Minisforum.
+Le profil NAS sélectionne Alertmanager, Prometheus, WUD, Grafana, n8n et le runner de mise à jour. Le profil Minisforum sélectionne WUD agent, Open WebUI et le dashboard homelab. Les exporters sont aussi déployables via les listes de l'inventaire ; `quota-collectors.yml` réconcilie Node Exporter sur le Minisforum.
 
 Le rôle charge les variables du service, génère `.env`, exécute sa configuration spécifique, génère Compose, démarre la stack, contrôle son état et exécute la post-configuration/proxy. Compose utilise `pull: missing` par défaut pour éviter les mises à jour implicites à chaque passage. Les templates Compose sont en 0600 et leurs tâches masquées. Les tâches optionnelles utilisent des chemins de rôle corrigés. Prometheus et Alertmanager ne sont rechargés que si leurs configurations changent.
 
 ## 6. Supervision, dashboards et quotas
 
-Prometheus collecte toutes les 15 secondes Node Exporter, cAdvisor, Docker exporter et WUD sur les deux nœuds : huit cibles de référence. Le label `server` distingue `nas` et `minisforum`. Le job système `node` est compatible avec 1860. Le mot de passe de collecte WUD est monté séparément dans Prometheus.
+Prometheus collecte toutes les 15 secondes Node Exporter, cAdvisor, Docker exporter et WUD sur les deux nœuds : huit cibles de référence. Le label `server` distingue `nas` et `minisforum`. Les alertes WUD sont groupées par alerte, serveur et nom de conteneur. Le job système `node` est compatible avec 1860. Le mot de passe de collecte WUD est monté séparément dans Prometheus.
 
 | Dashboard | Contenu |
 | --- | --- |
 | Node Exporter Full 1860, révision 37 | CPU, RAM, systèmes de fichiers, I/O, réseau et autres métriques disponibles ; téléchargement vérifié par SHA-256 |
 | Homelab - Santé des serveurs | Synthèse de disponibilité et ressources |
 | Homelab - Conteneurs Docker (`homelab-docker-containers`) | Noms lisibles, état, CPU, RAM, débits disque/réseau, image, mises à jour WUD et filtre serveur |
+| Homelab - KPIs serveurs et conteneurs (`homelab-kpis`) | Vue mixte serveurs/conteneurs : CPU, RAM, disque, load average, réseau, I/O, températures, services et mises à jour WUD |
 | Homelab - Quotas personnels (`homelab-personal-quotas`) | Fenêtres et réinitialisations Codex, état des collectes et consommation Copilot accessible |
 
 100 % de CPU conteneur correspond à **un cœur** ; la valeur peut dépasser 100 %. Les débits disque ne mesurent pas l'espace occupé par le conteneur : l'espace des systèmes de fichiers figure dans les dashboards serveurs. Les températures dépendent des capteurs exposés. Les exporters WSL ne remplacent pas une supervision complète de Windows.
@@ -207,11 +222,58 @@ Copilot utilise le jeton personnel `github_billing_token` avec permission utilis
 
 Alertmanager groupe par `alertname` et `server`, attend 30 secondes, regroupe sur 5 minutes et répète après 24 heures. L'envoi à `ALERT_EMAIL` est **activé** ; les compteurs SMTP ont confirmé des envois sans erreur. La réception en boîte ou dans les spams reste à confirmer par l'utilisateur. L'alerte de test expire après trois minutes et peut générer un e-mail de résolution.
 
+### Dashboard homelab
+
+`dashboard.PUBLIC_DOMAIN` est provisionné par Ansible via le service `homelab-dashboard` et peut être ajouté dans Homarr comme application ou iframe. Il ne remplace pas Grafana : il agrège une vue lisible pour l'exploitation quotidienne, alors que Grafana reste la couche métrique détaillée.
+
+La mise en page reprend le besoin Homarr :
+
+- colonne gauche fixe et scrollable : 15 outils en grille, notifications Alertmanager et bloc-notes ;
+- bouton pour masquer/réafficher la colonne gauche ;
+- icônes visibles pour chaque outil ;
+- bloc-notes local dans le navigateur ;
+- colonne droite fixe et scrollable : météo PRIMARY_CITY/PRIMARY_CITY/SECONDARY_CITY, heure France et SECONDARY_CITY, calendrier relié aux réunions Google Calendar si l'URL iCal est fournie, timer focus de 25 minutes ;
+- centre scrollable uniquement : serveurs, clients LAN Freebox, services Docker, WUD et calendrier streaming.
+
+Tous les blocs du centre sont rétractables et l'état est conservé localement dans le navigateur. Le sélecteur de rafraîchissement est placé dans l'en-tête `Vue d'ensemble`, à côté du bouton `Refresh maintenant`, et propose 1 s, 5 s, 15 s, 30 s et 1 min. Le bouton force une collecte immédiate ; les rafraîchissements automatiques utilisent un cache serveur court, configurable avec `homelab_dashboard_payload_cache_seconds`, pour éviter de charger inutilement le NAS et la Freebox.
+
+Les notifications du panneau gauche viennent d'Alertmanager. `Clear` masque les alertes cochées côté navigateur ; `Clear all` masque toutes les alertes actuellement reçues. Les tris au clic sur les en-têtes sont disponibles sur les tables LAN Freebox, Docker et clients AdGuard.
+
+Le calendrier démarre sur la date du jour et affiche par défaut les réunions à venir. Un clic sur une date filtre les réunions du jour sélectionné. Les vues `Jour`, `Semaine` et `Mois` sont disponibles, avec lettres des jours, mois et année affichés.
+
+La météo affiche par défaut ville, température et icône. Un clic sur une ville ouvre les détails : humidité actuelle, vent, prévision de vent, UV et probabilité de pluie. La date météo suit la date sélectionnée dans le calendrier quand elle est disponible dans la fenêtre de prévision.
+
+Le dashboard a été déplacé du NAS vers le Minisforum pour soulager le CPU du NAS. NPM reste sur le NAS et continue d'exposer `dashboard.PUBLIC_DOMAIN`, mais il proxifie maintenant vers `MINISFORUM_IP:8780`.
+
+La partie LAN Freebox distingue IPv4 et IPv6, masque l'interface Freebox technique, trie les appareils en ligne en premier et expose :
+
+- recherche par nom DNS, IPv4, IPv6 ou MAC ;
+- filtre `Tous / Online / Offline / WiFi / LAN` ;
+- compteurs connectés, hors ligne, WiFi et LAN ;
+- détail réseau `wifi` ou `lan` et bande WiFi quand l'API Freebox expose les stations.
+
+La partie Docker expose aussi ses propres filtres :
+
+- recherche par nom de conteneur, image ou hôte ;
+- filtre par hôte ;
+- filtre `Tous / Running / À vérifier / Update WUD`.
+
+La découverte LAN utilise l'API Freebox OS. Si la Freebox renvoie `403`, lancer `playbook/freebox-authorize.yml`, valider physiquement la demande sur la Freebox, puis ajouter le `freebox_app_token` généré dans le Vault.
+
+Le calendrier streaming est reconstruit au maximum une fois par jour côté dashboard. Les sources supportées sont :
+
+- Sonarr, via son calendrier de séries ;
+- Trakt, via les calendriers API personnels si les jetons sont présents ;
+- BetaSeries, via `betaseries_apikey` et un vrai token utilisateur ou un identifiant/login membre ;
+- des flux JSON explicites par plateforme via `homelab_dashboard_streaming_feeds_json`.
+
+Disney+, Canal+, Prime Video, Netflix et Crunchyroll peuvent donc être représentés de manière fiable si chaque plateforme fournit un flux configuré, ou si la donnée arrive par Sonarr/Trakt. JustWatch ne fournit pas d'API publique personnelle stable pour récupérer directement une playlist utilisateur ; une intégration exhaustive JustWatch nécessite l'offre/API commerciale ou un autre connecteur autorisé.
+
 ## 7. DNS, TLS, applications et domotique
 
 ### DNS et certificats locaux
 
-AdGuard ADM conserve ses réécritures, dont `*.PUBLIC_DOMAIN → NAS_IP`, et transmet les requêtes publiques à Pi-hole sur 5353. Pi-hole utilise `1.1.1.1` et `9.9.9.9`, sans boucle vers AdGuard. Résolution publique et sous-domaine Grafana ont été vérifiés. Tous les clients et listes de filtrage ne sont pas encore audités ; le DNS ne bloque pas toutes les publicités provenant du même domaine que le contenu.
+AdGuard ADM est le seul service DNS/filtrage LAN conservé. Il garde ses réécritures, dont `*.PUBLIC_DOMAIN → NAS_IP`, et utilise des amonts publics DoH. Pi-hole a été retiré car il faisait doublon avec AdGuard. Résolution publique et sous-domaine Grafana ont été vérifiés. Tous les clients et listes de filtrage ne sont pas encore audités ; le DNS ne bloque pas toutes les publicités provenant du même domaine que le contenu.
 
 Le domaine public est entièrement géré par Free, sans validation DNS-01 disponible ici. Une CA locale émet un certificat pour le wildcard et le domaine nu. Au lancement de `pki.yml`, le certificat serveur est renouvelé si sa validité restante est inférieure à 30 jours. Aucune planification du renouvellement n'est encore installée.
 
@@ -221,7 +283,7 @@ La clé de CA reste sur le contrôleur. NPM reçoit la clé serveur, son certifi
 
 Open WebUI utilise `http://MINISFORUM_IP:11434`. `ENABLE_PERSISTENT_CONFIG=False` fait prévaloir les variables Ansible sur les anciens réglages persistants. L'API de liste des modèles et les variables effectives ont été vérifiées, pas une conversation complète dans l'interface.
 
-n8n comprend un client NAS et une sandbox Minisforum : génération de certificats mTLS, API et runner Docker privilégié. Le runner a été observé en redémarrage pendant l'audit ; cette chaîne n'est pas déclarée opérationnelle. Aucun workflow n8n/Open WebUI ni ArgoCD ne pilote actuellement les mises à jour de production.
+n8n comprend un client NAS et une sandbox Minisforum : génération de certificats mTLS, API et runner Docker privilégié. La sandbox IA reste à durcir, mais le workflow n8n `Homelab - Container updates` est importé et publié par Ansible. Il tourne toutes les 15 minutes, appelle `homelab-updater` sur le réseau Docker interne, puis résume le résultat via Ollama avec `mistral-small:24b`.
 
 ### Home Assistant et Homarr
 
@@ -233,7 +295,7 @@ Homarr est conservé comme portail et inclus dans les sauvegardes. Son rôle con
 
 Le script de sauvegarde découvre les montages de Homarr (`/appdata`), NPM (`/data`, `/etc/letsencrypt`), AdGuard (`/opt/adguardhome/conf`) et Home Assistant (`/config`). Il crée une archive datée dans `/volume1/Docker/backups/configuration/`, avec un manifeste des images et destinations. Les bases SQLite sont copiées via leur API et contrôlées avec `integrity_check`. Caches, journaux et historique `home-assistant_v2.db` sont exclus. Une archive a été créée avec succès.
 
-Le routage DNS initial est sauvegardé une seule fois dans `/volume1/Docker/backups/adguard/dns-before-pihole.json`. L'archive applicative ne couvre pas tous les volumes : données Prometheus, Pi-hole, n8n et Open WebUI notamment exclues. Copier les archives hors NAS et sauvegarder séparément inventaire, Vault et `.local-pki/`.
+Le routage DNS initial est sauvegardé une seule fois dans `/volume1/Docker/backups/adguard/dns-before-adguard-standalone.json`. L'archive applicative ne couvre pas tous les volumes : données Prometheus, n8n et Open WebUI notamment exclues. Copier les archives hors NAS et sauvegarder séparément inventaire, Vault et `.local-pki/`.
 
 Pas encore de rotation, de planification globale ou de restauration automatisée testée. Les UID/GID doivent être vérifiés à la restauration. Restaurer seulement après arrêt de l'application et sauvegarde de son état courant.
 
@@ -251,9 +313,9 @@ flowchart LR
   P -. échec géré .-> R
 ```
 
-La migration Alertmanager v0.28.1 → v0.34.0 a réussi. La version et les données validées sont conservées par les déploiements ordinaires grâce au `release.yml` distant. Le playbook s'arrête sans changement s'il n'y a pas de proposition WUD ou si l'image est déjà en production. `artifacts/releases/nas/alertmanager.yml` contient le manifeste récupéré, **pas les données référencées**.
+La migration Alertmanager v0.28.1 → v0.34.0 a réussi. Les playbooks s'arrêtent sans changement s'il n'y a pas de proposition WUD ou si l'image est déjà en production. `artifacts/releases/nas/alertmanager.yml` contient le manifeste récupéré, **pas les données référencées**.
 
-Le lancement est manuel et limité à Alertmanager. Les autres applications restent en notification seule ; aucun bouton Grafana ne déclenche leur mise à jour. Les données originales sont conservées ; le retour arrière est tenté sur erreur gérée, mais n'a pas été éprouvé par injection de panne. Un arrêt brutal d'Ansible peut nécessiter une reprise manuelle. Ne pas exécuter simultanément déploiement et migration du même service. Chaque application supplémentaire nécessite son propre contrat et ses tests.
+Le déclenchement robuste est maintenant porté par n8n : le workflow `Homelab - Container updates` exécute le runner toutes les 15 minutes depuis le NAS. Le vieux cron WSL a été retiré pour éviter deux déclencheurs concurrents. Pi-hole n'est plus géré : AdGuard est le seul bloqueur DNS LAN. Alertmanager garde son contrat Ansible manuel ; les autres applications restent en notification seule. Aucun bouton Grafana ne déclenche leur mise à jour.
 
 ## 9. Vault et sécurité
 
@@ -270,6 +332,13 @@ ansible-playbook playbook/vault-readiness.yml
 | `smtp_smarthost`, `smtp_from`, `smtp_username`, `smtp_password` | SMTP avec TLS obligatoire ; Gmail nécessite un mot de passe d'application |
 | `alert_email_enabled`, `alert_email_to` | Activation/destinataire, non secrets |
 | `homeassistant_username`, `homeassistant_password` | Compte HA existant |
+| `freebox_ip`, `freebox_base_url`, `freebox_username`, `freebox_password`, `freebox_app_token` | Découverte LAN Freebox OS ; le token applicatif évite de dépendre du mot de passe |
+| `homelab_dashboard_google_calendar_ical_url` | Réunions Google Calendar affichées dans le dashboard |
+| `homelab_dashboard_trakt_client_id`, `homelab_dashboard_trakt_access_token` | Calendrier Trakt personnel |
+| `homelab_dashboard_sonarr_url`, `homelab_dashboard_sonarr_api_key` | Calendrier Sonarr |
+| `homelab_dashboard_tmdb_api_key` | Réserve pour enrichissement fournisseur/plateforme quand activé |
+| `betaseries_apikey`, `betaseries_oauth2`, `betaseries_user_id`, `betaseries_login` | Calendrier BetaSeries ; `betaseries_oauth2` doit être un token utilisateur valide, pas seulement un secret applicatif |
+| `homelab_dashboard_streaming_feeds_json` | Flux JSON par plateforme streaming, par exemple Disney+, Canal+, Prime Video, Netflix et Crunchyroll |
 | `github_billing_token` | Lecture personnelle Copilot |
 | `adguard_admin_password` | AdGuard, fichier chiffré local sous `group_vars/all/` |
 | `sandbox_api_keys`, `sandbox_runner_api_key`, `sandbox_registration_token`, `openai_api_key` | Intégrations n8n/IA selon les services |
@@ -286,8 +355,8 @@ Ne publier ni `.vault_password`, ni secrets déchiffrés, ni clés/archives. Des
 | Quotas | Codex réel collecté, cron actif, token GitHub chargé | API Copilot HTTP 404 : compte, permission et éligibilité à vérifier |
 | Notifications | SMTP activé, compteurs d'envoi sans erreur | Réception utilisateur à confirmer |
 | NPM/TLS | Dix routes, CA et wildcard importés, HTTPS Grafana vérifié | Confiance CA sur les clients, renouvellement planifié, proxy HA |
-| DNS | Pi-hole installé, AdGuard configuré sans réinstallation, résolution validée | DNS Freebox de secours Windows, Tailscale NAS et clients LAN |
-| IA | Open WebUI vers Ollama Windows, API modèles accessible | Conversation de bout en bout et runner n8n |
+| DNS | Pi-hole retiré, AdGuard configuré sans réinstallation, résolution validée | DNS Freebox de secours Windows, Tailscale NAS et clients LAN |
+| IA | Open WebUI vers Ollama Windows, n8n vers Ollama validé | Conversation de bout en bout et durcissement sandbox n8n |
 | Domotique/portail | HA authentifié, intégrations auditées, Homarr conservé et sauvegardé | Appairages et KPI Homarr |
 | Données/migrations | Archive créée, DNS initial sauvegardé, migration Alertmanager réussie | Restauration testée, copie hors NAS, rotation, autres contrats de migration |
 

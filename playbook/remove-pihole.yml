@@ -1,0 +1,68 @@
+---
+- name: Retirer Pi-hole au profit d'AdGuard
+  hosts: nas
+  gather_facts: false
+  tasks:
+    - name: Arrêter et supprimer la stack Pi-hole si elle existe
+      ansible.builtin.command:
+        argv: [docker, compose, down]
+        chdir: /volume1/Docker/pihole
+      register: pihole_compose_down
+      changed_when: "'Removed' in pihole_compose_down.stdout or 'Stopping' in pihole_compose_down.stdout"
+      failed_when: false
+
+    - name: Supprimer les conteneurs Pi-hole résiduels
+      ansible.builtin.command:
+        argv: [docker, rm, -f, pihole, pihole-candidate]
+      register: pihole_rm
+      changed_when: pihole_rm.rc == 0 and pihole_rm.stdout | trim | length > 0
+      failed_when: false
+
+    - name: Authentifier NPM
+      ansible.builtin.uri:
+        url: http://127.0.0.1:81/api/tokens
+        method: POST
+        body_format: json
+        body:
+          identity: "{{ npm_admin_email }}"
+          secret: "{{ homelab_admin_password }}"
+        timeout: 10
+      register: npm_login
+      no_log: true
+
+    - name: Lire les sous-domaines NPM
+      ansible.builtin.uri:
+        url: http://127.0.0.1:81/api/nginx/proxy-hosts
+        headers:
+          Authorization: "Bearer {{ npm_login.json.token }}"
+        timeout: 10
+      register: npm_hosts
+      no_log: true
+
+    - name: Identifier le proxy Pi-hole
+      ansible.builtin.set_fact:
+        pihole_proxy: "{{ npm_hosts.json | selectattr('domain_names', 'contains', 'pihole.PUBLIC_DOMAIN') | list | first | default({}) }}"
+      no_log: true
+
+    - name: Supprimer le proxy NPM Pi-hole
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:81/api/nginx/proxy-hosts/{{ pihole_proxy.id }}"
+        method: DELETE
+        headers:
+          Authorization: "Bearer {{ npm_login.json.token }}"
+        status_code: [200, 204]
+        timeout: 10
+      when: pihole_proxy.id is defined
+      changed_when: true
+      no_log: true
+
+    - name: Vérifier l'absence de conteneurs Pi-hole
+      ansible.builtin.command:
+        argv: [docker, ps, -a, --filter, name=pihole, --format, "{{ '{{' }}.Names{{ '}}' }}"]
+      register: pihole_ps
+      changed_when: false
+      failed_when: pihole_ps.stdout | trim | length > 0
+
+    - name: Rappeler la conservation des données
+      ansible.builtin.debug:
+        msg: "Pi-hole est retiré. Les données éventuelles restent conservées dans /volume1/Docker/pihole pour rollback manuel."

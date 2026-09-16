@@ -1,0 +1,29 @@
+name: homelab-updater-stack
+
+services:
+  homelab-updater:
+    image: python:3.13-alpine
+    container_name: homelab-updater
+    restart: unless-stopped
+    labels:
+      wud.watch: 'false'
+    working_dir: /app
+    command: ["/bin/sh", "-lc", "apk add --no-cache docker-cli curl bind-tools >/tmp/apk.log && python /app/homelab-updater.py"]
+    environment:
+      PROMETHEUS_URL: http://{{ nas_ip }}:{{ prometheus_port }}
+      UPDATE_TOKEN: {{ sandbox_runner_api_key | to_json }}
+      TZ: PRIMARY_TIMEZONE
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - {{ stacks_base_path }}/homelab-updater:/app:ro
+      - {{ stacks_base_path }}/alertmanager:/managed/alertmanager
+    networks:
+      homelab_internal:
+        aliases:
+          - homelab-updater
+    profiles: ["nas"]
+
+networks:
+  homelab_internal:
+    name: homelab_internal
+    external: true

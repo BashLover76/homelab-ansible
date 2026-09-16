@@ -10,12 +10,6 @@
       force_basic_auth: true
       timeout: 10
   tasks:
-    - name: Tester Pi-hole avant de modifier le DNS du LAN
-      ansible.builtin.command:
-        argv: [docker, exec, pihole, dig, '@NAS_IP', '-p', '5353', example.com, '+short']
-      register: pihole_probe
-      changed_when: false
-      failed_when: pihole_probe.rc != 0 or pihole_probe.stdout | trim | length == 0
     - name: Lire la configuration existante
       ansible.builtin.uri:
         url: http://NAS_IP:8030/control/dns_info
@@ -29,29 +23,29 @@
     - name: Sauvegarder le routage DNS initial une seule fois
       ansible.builtin.copy:
         content: "{{ current_dns.json | to_nice_json }}"
-        dest: /volume1/Docker/backups/adguard/dns-before-pihole.json
+        dest: /volume1/Docker/backups/adguard/dns-before-adguard-standalone.json
         force: false
         mode: '0600'
       no_log: true
-    - name: Utiliser Pi-hole comme DNS amont sans boucle vers AdGuard
+    - name: Utiliser des DNS publics comme amonts AdGuard
       ansible.builtin.uri:
         url: http://NAS_IP:8030/control/dns_config
         method: POST
         body_format: json
         body:
-          upstream_dns: ['NAS_IP:5353']
-      when: current_dns.json.upstream_dns != ['NAS_IP:5353']
+          upstream_dns: ['https://dns10.quad9.net/dns-query', 'https://cloudflare-dns.com/dns-query']
+      when: current_dns.json.upstream_dns != ['https://dns10.quad9.net/dns-query', 'https://cloudflare-dns.com/dns-query']
       changed_when: true
       no_log: true
     - name: Vérifier la résolution publique via AdGuard
       ansible.builtin.command:
-        argv: [docker, exec, pihole, dig, '@NAS_IP', example.com, '+short']
+        argv: [nslookup, example.com, NAS_IP]
       register: adguard_probe
       changed_when: false
       failed_when: adguard_probe.rc != 0 or adguard_probe.stdout | trim | length == 0
     - name: Vérifier le sous-domaine local Grafana
       ansible.builtin.command:
-        argv: [docker, exec, pihole, dig, '@NAS_IP', grafana.PUBLIC_DOMAIN, '+short']
+        argv: [nslookup, grafana.PUBLIC_DOMAIN, NAS_IP]
       register: local_dns_probe
       changed_when: false
       failed_when: "'NAS_IP' not in local_dns_probe.stdout"

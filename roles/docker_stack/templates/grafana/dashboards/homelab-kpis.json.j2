@@ -1,0 +1,53 @@
+{% raw %}
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "title": "Homelab - KPIs serveurs et conteneurs",
+  "uid": "homelab-kpis",
+  "version": 1,
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "tags": ["homelab", "kpi"],
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "server",
+        "label": "Serveur",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(node_uname_info, server)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 1
+      },
+      {
+        "name": "container",
+        "label": "Conteneur",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(docker_container_state{server=~\"$server\"}, name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {"id":1,"type":"stat","title":"CPU serveurs","gridPos":{"x":0,"y":0,"w":6,"h":4},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"100 * (1 - avg by(server) (rate(node_cpu_seconds_total{server=~\"$server\",mode=\"idle\"}[5m])))","legendFormat":"{{server}}"}],"fieldConfig":{"defaults":{"unit":"percent"},"overrides":[]}},
+    {"id":2,"type":"stat","title":"RAM serveurs","gridPos":{"x":6,"y":0,"w":6,"h":4},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"100 * (1 - (node_memory_MemAvailable_bytes{server=~\"$server\"} / node_memory_MemTotal_bytes{server=~\"$server\"}))","legendFormat":"{{server}}"}],"fieldConfig":{"defaults":{"unit":"percent"},"overrides":[]}},
+    {"id":3,"type":"stat","title":"Disk serveurs","gridPos":{"x":12,"y":0,"w":6,"h":4},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"100 * (1 - sum by(server) (node_filesystem_avail_bytes{server=~\"$server\",fstype!~\"tmpfs|overlay|squashfs\"}) / sum by(server) (node_filesystem_size_bytes{server=~\"$server\",fstype!~\"tmpfs|overlay|squashfs\"}))","legendFormat":"{{server}}"}],"fieldConfig":{"defaults":{"unit":"percent"},"overrides":[]}},
+    {"id":4,"type":"stat","title":"Services running","gridPos":{"x":18,"y":0,"w":6,"h":4},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"count by(server) (docker_container_state{server=~\"$server\",state=\"running\"})","legendFormat":"{{server}}"}],"fieldConfig":{"defaults":{"unit":"short"},"overrides":[]}},
+    {"id":5,"type":"timeseries","title":"Load average","gridPos":{"x":0,"y":4,"w":8,"h":7},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"node_load1{server=~\"$server\"}","legendFormat":"{{server}} load1"},{"expr":"node_load5{server=~\"$server\"}","legendFormat":"{{server}} load5"},{"expr":"node_load15{server=~\"$server\"}","legendFormat":"{{server}} load15"}]},
+    {"id":6,"type":"timeseries","title":"Réseau serveurs","gridPos":{"x":8,"y":4,"w":8,"h":7},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"sum by(server) (rate(node_network_receive_bytes_total{server=~\"$server\",device!~\"lo|veth.*|br-.*|docker.*\"}[$__rate_interval]))","legendFormat":"{{server}} RX"},{"expr":"sum by(server) (rate(node_network_transmit_bytes_total{server=~\"$server\",device!~\"lo|veth.*|br-.*|docker.*\"}[$__rate_interval]))","legendFormat":"{{server}} TX"}],"fieldConfig":{"defaults":{"unit":"Bps"},"overrides":[]}},
+    {"id":7,"type":"timeseries","title":"Températures","gridPos":{"x":16,"y":4,"w":8,"h":7},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"max by(server,chip,sensor) (node_hwmon_temp_celsius{server=~\"$server\"})","legendFormat":"{{server}} {{chip}} {{sensor}}"}],"fieldConfig":{"defaults":{"unit":"celsius"},"overrides":[]}},
+    {"id":8,"type":"table","title":"Conteneurs, état, CPU, RAM, image et WUD","gridPos":{"x":0,"y":11,"w":24,"h":10},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"max by(server,name,status,image_name,image_tag_value,update_available,result_tag) (wud_containers{server=~\"$server\",name=~\"$container\"})","instant":true,"format":"table"},{"refId":"B","expr":"sum by(server,name) (rate(docker_container_cpu_usage_seconds_total{server=~\"$server\",name=~\"$container\"}[5m]) * 100)","instant":true,"format":"table"},{"refId":"C","expr":"max by(server,name) (docker_container_memory_usage_bytes{server=~\"$server\",name=~\"$container\"})","instant":true,"format":"table"}]},
+    {"id":9,"type":"timeseries","title":"CPU conteneurs","gridPos":{"x":0,"y":21,"w":12,"h":8},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"rate(docker_container_cpu_usage_seconds_total{server=~\"$server\",name=~\"$container\"}[$__rate_interval]) * 100","legendFormat":"{{server}} / {{name}}"}],"fieldConfig":{"defaults":{"unit":"percent"},"overrides":[]}},
+    {"id":10,"type":"timeseries","title":"RAM conteneurs","gridPos":{"x":12,"y":21,"w":12,"h":8},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"docker_container_memory_usage_bytes{server=~\"$server\",name=~\"$container\"}","legendFormat":"{{server}} / {{name}}"}],"fieldConfig":{"defaults":{"unit":"bytes"},"overrides":[]}},
+    {"id":11,"type":"timeseries","title":"I/O disques conteneurs","gridPos":{"x":0,"y":29,"w":12,"h":8},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"rate(docker_container_fs_reads_bytes_total{server=~\"$server\",name=~\"$container\"}[$__rate_interval])","legendFormat":"{{server}} / {{name}} read"},{"expr":"rate(docker_container_fs_writes_bytes_total{server=~\"$server\",name=~\"$container\"}[$__rate_interval])","legendFormat":"{{server}} / {{name}} write"}],"fieldConfig":{"defaults":{"unit":"Bps"},"overrides":[]}},
+    {"id":12,"type":"timeseries","title":"Réseau conteneurs","gridPos":{"x":12,"y":29,"w":12,"h":8},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"expr":"rate(docker_container_network_receive_bytes_total{server=~\"$server\",name=~\"$container\"}[$__rate_interval])","legendFormat":"{{server}} / {{name}} RX"},{"expr":"rate(docker_container_network_transmit_bytes_total{server=~\"$server\",name=~\"$container\"}[$__rate_interval])","legendFormat":"{{server}} / {{name}} TX"}],"fieldConfig":{"defaults":{"unit":"Bps"},"overrides":[]}}
+  ]
+}
+{% endraw %}

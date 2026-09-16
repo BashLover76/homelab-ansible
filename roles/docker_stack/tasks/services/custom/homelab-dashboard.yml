@@ -1,0 +1,17 @@
+---
+- name: Déployer le dashboard Homarr local
+  ansible.builtin.template:
+    src: homelab-dashboard.py.j2
+    dest: "{{ stacks_base_path }}/homelab-dashboard/homelab-dashboard.py"
+    owner: homelab
+    group: docker
+    mode: '0750'
+  no_log: true
+  register: homelab_dashboard_script
+
+- name: Redémarrer le dashboard si son code a changé
+  ansible.builtin.command:
+    argv: [docker, restart, homelab-dashboard]
+  when: homelab_dashboard_script is changed
+  changed_when: true
+  failed_when: false

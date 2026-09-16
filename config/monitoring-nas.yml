@@ -1,2 +1,2 @@
 target_hosts: nas
-selected_services: [alertmanager, prometheus, whatsupdocker, pihole, grafana]
+selected_services: [alertmanager, prometheus, whatsupdocker, grafana, homelab-updater, n8n-client]

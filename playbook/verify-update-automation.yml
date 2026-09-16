@@ -1,0 +1,63 @@
+---
+- name: Vérifier l'automatisation n8n des mises à jour
+  hosts: nas
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Vérifier la santé du runner depuis n8n
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - n8n
+          - wget
+          - -qO-
+          - --timeout=5
+          - http://homelab-updater:8765/healthz
+      register: updater_health
+      changed_when: false
+      failed_when: "'ok' not in updater_health.stdout"
+
+    - name: Déclencher le runner comme le workflow n8n
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - n8n
+          - wget
+          - -qO-
+          - --timeout=300
+          - --post-data={}
+          - "--header=X-Homelab-Token: {{ sandbox_runner_api_key }}"
+          - http://homelab-updater:8765/run
+      register: runner_result
+      changed_when: false
+      no_log: true
+
+    - name: Vérifier que le runner répond correctement
+      ansible.builtin.assert:
+        that:
+          - runner_result.rc == 0
+          - "'results' in runner_result.stdout"
+        success_msg: "Le runner de mises à jour répond correctement."
+
+    - name: Vérifier la publication du workflow n8n
+      ansible.builtin.command:
+        argv: [docker, exec, n8n, n8n, list:workflow, --active=true]
+      register: n8n_active_workflows
+      changed_when: false
+      failed_when: "'homelab-container-updates|Homelab - Container updates' not in n8n_active_workflows.stdout"
+
+    - name: Vérifier la connexion n8n vers Ollama
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - n8n
+          - wget
+          - -qO-
+          - --timeout=10
+          - http://MINISFORUM_IP:11434/api/tags
+      register: n8n_ollama
+      changed_when: false
+      failed_when: "'models' not in n8n_ollama.stdout"

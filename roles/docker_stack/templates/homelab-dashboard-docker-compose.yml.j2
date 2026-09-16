@@ -1,0 +1,41 @@
+name: homelab-dashboard-stack
+
+services:
+  homelab-dashboard:
+    image: python:3.13-alpine
+    container_name: homelab-dashboard
+    restart: unless-stopped
+    labels:
+      wud.watch: 'false'
+    working_dir: /app
+    command: ["/bin/sh", "-lc", "python /app/homelab-dashboard.py"]
+    ports:
+      - "{{ ollama_windows_host if inventory_hostname == 'minisforum' else nas_ip }}:{{ homelab_dashboard_port }}:8780/tcp"
+    environment:
+      PROMETHEUS_URL: "http://{{ nas_ip }}:{{ prometheus_port }}"
+      ALERTMANAGER_URL: "http://{{ nas_ip }}:{{ alertmanager_port }}"
+      WUD_URL: "http://{{ nas_ip }}:{{ wud_port }}"
+      ADGUARD_URL: "http://{{ nas_ip }}:8030"
+      ADGUARD_USERNAME: "{{ adguard_admin_username | default('homelab') }}"
+      ADGUARD_PASSWORD: {{ adguard_admin_password | default('') | to_json }}
+      FREEBOX_URL: {{ freebox_base_url | default('http://FREEBOX_IP') | to_json }}
+      FREEBOX_USERNAME: {{ freebox_username | default(freebox_user | default('')) | to_json }}
+      FREEBOX_PASSWORD: {{ freebox_password | default('') | to_json }}
+      FREEBOX_APP_TOKEN: {{ freebox_app_token | default('') | to_json }}
+      GOOGLE_CALENDAR_ICAL_URL: {{ homelab_dashboard_google_calendar_ical_url | default(google_calendar_ical_url | default(hostvars[nas_host].homelab_dashboard_google_calendar_ical_url | default(hostvars[nas_host].google_calendar_ical_url | default(''), true), true), true) | to_json }}
+      STREAMING_FEEDS_JSON: {{ homelab_dashboard_streaming_feeds_json | default('{}') | to_json }}
+      PAYLOAD_CACHE_SECONDS: {{ homelab_dashboard_payload_cache_seconds | default('5') | to_json }}
+      TRAKT_CLIENT_ID: {{ homelab_dashboard_trakt_client_id | default('') | to_json }}
+      TRAKT_ACCESS_TOKEN: {{ homelab_dashboard_trakt_access_token | default('') | to_json }}
+      SONARR_URL: {{ homelab_dashboard_sonarr_url | default('') | to_json }}
+      SONARR_API_KEY: {{ homelab_dashboard_sonarr_api_key | default('') | to_json }}
+      TMDB_API_KEY: {{ homelab_dashboard_tmdb_api_key | default('') | to_json }}
+      BETASERIES_API_KEY: {{ homelab_dashboard_betaseries_api_key | default(betaseries_api_key | default(betaseries_apikey | default(hostvars[nas_host].homelab_dashboard_betaseries_api_key | default(hostvars[nas_host].betaseries_api_key | default(hostvars[nas_host].betaseries_apikey | default(''), true), true), true), true), true) | to_json }}
+      BETASERIES_TOKEN: {{ homelab_dashboard_betaseries_token | default(betaseries_token | default(betaseries_oauth2 | default(hostvars[nas_host].homelab_dashboard_betaseries_token | default(hostvars[nas_host].betaseries_token | default(hostvars[nas_host].betaseries_oauth2 | default(''), true), true), true), true), true) | to_json }}
+      BETASERIES_USER_ID: {{ homelab_dashboard_betaseries_user_id | default(betaseries_user_id | default(hostvars[nas_host].homelab_dashboard_betaseries_user_id | default(hostvars[nas_host].betaseries_user_id | default(''), true), true), true) | to_json }}
+      BETASERIES_LOGIN: {{ homelab_dashboard_betaseries_login | default(betaseries_login | default(hostvars[nas_host].homelab_dashboard_betaseries_login | default(hostvars[nas_host].betaseries_login | default(''), true), true), true) | to_json }}
+      TZ: PRIMARY_TIMEZONE
+    volumes:
+      - {{ stacks_base_path }}/homelab-dashboard:/app:ro
+      - {{ stacks_base_path }}/homelab-dashboard/cache:/cache
+    profiles: ["{{ docker_profile }}"]

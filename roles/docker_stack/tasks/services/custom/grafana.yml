@@ -11,7 +11,7 @@
   ansible.builtin.file:
     path: "{{ stacks_base_path }}/grafana/{{ item }}"
     state: directory
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0755'
   loop:
@@ -23,7 +23,7 @@
   ansible.builtin.template:
     src: grafana/provisioning/datasources/prometheus.yml.j2
     dest: "{{ stacks_base_path }}/grafana/grafana/provisioning/datasources/prometheus.yml"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0644'
 
@@ -31,7 +31,7 @@
   ansible.builtin.template:
     src: grafana/provisioning/dashboards/default.yml.j2
     dest: "{{ stacks_base_path }}/grafana/grafana/provisioning/dashboards/default.yml"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0644'
 
@@ -39,7 +39,7 @@
   ansible.builtin.template:
     src: grafana/dashboards/server-health.json.j2
     dest: "{{ stacks_base_path }}/grafana/grafana/dashboards/server-health.json"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0644'
 
@@ -58,7 +58,7 @@
   ansible.builtin.template:
     src: grafana/dashboards/docker-overview.json.j2
     dest: "{{ stacks_base_path }}/grafana/grafana/dashboards/docker-containers.json"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0644'
 
@@ -72,6 +72,6 @@
   ansible.builtin.template:
     src: grafana/dashboards/homelab-kpis.json.j2
     dest: '{{ stacks_base_path }}/grafana/grafana/dashboards/homelab-kpis.json'
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0644'

@@ -13,7 +13,7 @@
       - users
       - update-password
       - -u
-      - homelab
+      - "{{ homarr_admin_username }}"
       - -p
       - "{{ homelab_admin_password }}"
   register: homarr_admin_password_update

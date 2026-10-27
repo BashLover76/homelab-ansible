@@ -22,7 +22,7 @@
         body_format: json
         body:
           client_id: http://{{ nas_ip }}:8123/
-          username: "{{ homeassistant_username | default('homelab') }}"
+          username: "{{ homeassistant_username }}"
           password: "{{ homeassistant_password | default(homelab_admin_password) }}"
         timeout: 10
       register: ha_login_check

@@ -16,7 +16,7 @@ services:
       ALERTMANAGER_URL: "http://{{ nas_ip }}:{{ alertmanager_port }}"
       WUD_URL: "http://{{ nas_ip }}:{{ wud_port }}"
       ADGUARD_URL: "http://{{ nas_ip }}:8030"
-      ADGUARD_USERNAME: "{{ adguard_admin_username | default('homelab') }}"
+      ADGUARD_USERNAME: "{{ adguard_admin_username }}"
       ADGUARD_PASSWORD: {{ adguard_admin_password | default('') | to_json }}
       FREEBOX_URL: {{ freebox_base_url | default('http://{{ freebox_ip }}') | to_json }}
       FREEBOX_USERNAME: {{ freebox_username | default(freebox_user | default('')) | to_json }}
@@ -34,7 +34,7 @@ services:
       BETASERIES_TOKEN: {{ homelab_dashboard_betaseries_token | default(betaseries_token | default(betaseries_oauth2 | default(hostvars[nas_host].homelab_dashboard_betaseries_token | default(hostvars[nas_host].betaseries_token | default(hostvars[nas_host].betaseries_oauth2 | default(''), true), true), true), true), true) | to_json }}
       BETASERIES_USER_ID: {{ homelab_dashboard_betaseries_user_id | default(betaseries_user_id | default(hostvars[nas_host].homelab_dashboard_betaseries_user_id | default(hostvars[nas_host].betaseries_user_id | default(''), true), true), true) | to_json }}
       BETASERIES_LOGIN: {{ homelab_dashboard_betaseries_login | default(betaseries_login | default(hostvars[nas_host].homelab_dashboard_betaseries_login | default(hostvars[nas_host].betaseries_login | default(''), true), true), true) | to_json }}
-      TZ: PRIMARY_TIMEZONE
+      TZ: "{{ homelab_timezone }}"
     volumes:
       - {{ stacks_base_path }}/homelab-dashboard:/app:ro
       - {{ stacks_base_path }}/homelab-dashboard/cache:/cache

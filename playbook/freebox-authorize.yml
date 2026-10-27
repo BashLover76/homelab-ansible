@@ -3,11 +3,10 @@
   hosts: nas
   gather_facts: false
   vars:
-    freebox_app_id: homelab.dashboard
     freebox_app_name: Homelab Dashboard
     freebox_app_version: "1.0.0"
     freebox_device_name: homelab-dashboard
-    freebox_api_url: "http://{{ freebox_ip | default('{{ freebox_ip }}') }}"
+    freebox_api_url: "http://{{ freebox_ip }}"
   tasks:
     - name: Lire la version de l'API Freebox
       ansible.builtin.uri:

@@ -20,7 +20,7 @@
       community.crypto.openssl_csr:
         path: "{{ pki_dir }}/ca.csr"
         privatekey_path: "{{ pki_dir }}/ca.key"
-        common_name: homelab Homelab Local CA
+        common_name: Homelab Local CA
         basic_constraints: ['CA:TRUE', 'pathlen:0']
         basic_constraints_critical: true
         key_usage: [keyCertSign, cRLSign]

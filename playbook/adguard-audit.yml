@@ -4,7 +4,7 @@
   gather_facts: false
   module_defaults:
     ansible.builtin.uri:
-      url_username: homelab
+      url_username: "{{ adguard_admin_username }}"
       url_password: "{{ adguard_admin_password }}"
       force_basic_auth: true
       timeout: 10

@@ -39,7 +39,7 @@
       {{ key }}={{ value }}
       {% endfor %}
     dest: "{{ stacks_base_path }}/{{ service_name }}/.env"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0600'
 

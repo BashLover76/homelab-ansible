@@ -7,6 +7,11 @@
       ansible.builtin.debug:
         msg:
           alert_email_enabled: "{{ alert_email_enabled | default(false) | bool }}"
+          infrastructure_hosts_present: "{{ nas_ip | default('') | length > 0 and minisforum_host | default('') | length > 0 and ollama_windows_host | default('') | length > 0 }}"
+          basedomain_present: "{{ basedomain | default('') | length > 0 }}"
+          system_user_present: "{{ homelab_system_user | default('') | length > 0 }}"
+          service_admin_users_present: "{{ grafana_admin_user | default('') | length > 0 and adguard_admin_username | default('') | length > 0 and homarr_admin_username | default('') | length > 0 }}"
+          dashboard_privacy_settings_present: "{{ freebox_app_id | default('') | length > 0 and homelab_dashboard_weather_locations | default([]) | length > 0 and homelab_timezone | default('') | length > 0 }}"
           smtp_smarthost_present: "{{ smtp_smarthost | default('') | length > 0 }}"
           smtp_from_present: "{{ smtp_from | default('') | length > 0 }}"
           smtp_username_present: "{{ smtp_username | default('') | length > 0 }}"

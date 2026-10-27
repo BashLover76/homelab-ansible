@@ -24,7 +24,7 @@ FREEBOX_URL = os.environ.get("FREEBOX_URL", "http://{{ freebox_ip }}").rstrip("/
 FREEBOX_USERNAME = os.environ.get("FREEBOX_USERNAME", "")
 FREEBOX_PASSWORD = os.environ.get("FREEBOX_PASSWORD", "")
 FREEBOX_APP_TOKEN = os.environ.get("FREEBOX_APP_TOKEN", "")
-FREEBOX_APP_ID = "homelab.dashboard"
+FREEBOX_APP_ID = {{ freebox_app_id | to_json }}
 TRAKT_CLIENT_ID = os.environ.get("TRAKT_CLIENT_ID", "")
 TRAKT_ACCESS_TOKEN = os.environ.get("TRAKT_ACCESS_TOKEN", "")
 SONARR_URL = os.environ.get("SONARR_URL", "").rstrip("/")
@@ -35,6 +35,8 @@ BETASERIES_TOKEN = os.environ.get("BETASERIES_TOKEN", "")
 BETASERIES_USER_ID = os.environ.get("BETASERIES_USER_ID", "")
 BETASERIES_LOGIN = os.environ.get("BETASERIES_LOGIN", "")
 CACHE_DIR = Path("/cache")
+WEATHER_LOCATIONS = {{ homelab_dashboard_weather_locations | to_json }}
+WEATHER_TIMEZONE = {{ homelab_dashboard_weather_timezone | to_json }}
 
 TOOLS = [
     ("Homarr", "🏠", "http://homarr.{{ basedomain }}/"),
@@ -457,19 +459,17 @@ def streaming_calendar(force=False):
 
 
 def weather():
-    cities = [
-        ("PRIMARY_CITY", 0.0, 0.0),
-        ("PRIMARY_CITY", 0.0, 0.0),
-        ("SECONDARY_CITY", 0.0, 0.0),
-    ]
     output = []
-    for name, lat, lon in cities:
+    for location in WEATHER_LOCATIONS:
+        name = location["name"]
+        lat = location["latitude"]
+        lon = location["longitude"]
         url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode({
             "latitude": lat,
             "longitude": lon,
             "current": "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
             "daily": "weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_probability_max,wind_speed_10m_max",
-            "timezone": "PRIMARY_TIMEZONE",
+            "timezone": WEATHER_TIMEZONE,
         })
         payload = fetch_json(url)
         current = payload.get("current", {})
@@ -596,7 +596,7 @@ table{width:100%;border-collapse:collapse;background:var(--panel);border:1px sol
 <section id="streaming"><div class="section-head"><h2>Streaming</h2><button class="btn ghost" onclick="toggleSection('streamingBlock')">Rétracter</button></div><div id="streamingBlock" class="section-body"><div class="filters"><input id="streamingSearch" class="input" placeholder="Rechercher sortie" oninput="renderStreaming()"><select id="streamingPlatform" class="select" onchange="renderStreaming()"><option value="all">Toutes plateformes</option></select></div><div class="card"><table><thead><tr><th>Date</th><th>Plateforme</th><th>Titre</th><th>Source</th></tr></thead><tbody id="streamingRows"></tbody></table></div></div></section>
 </main>
 <aside class="right">
-<div class="card"><div class="tz"><span>🇫🇷 France</span><div class="clock" id="clock">--:--</div></div><div class="muted" id="date"></div><div class="tz small" style="margin-top:8px"><span>🇲🇽 SECONDARY_CITY</span><div class="clock" id="clockMexico">--:--</div></div></div>
+<div class="card"><div class="tz"><span>{{ homelab_dashboard_primary_timezone_label }}</span><div class="clock" id="clock">--:--</div></div><div class="muted" id="date"></div><div class="tz small" style="margin-top:8px"><span>{{ homelab_dashboard_secondary_timezone_label }}</span><div class="clock" id="clockSecondary">--:--</div></div></div>
 <h2>Météo</h2><div id="weather"></div>
 <h2>Calendrier</h2><div class="card"><div class="calendar-head"><button class="btn ghost" onclick="moveCalendar(-1)">‹</button><div class="calendar-title" id="calendarTitle"></div><button class="btn ghost" onclick="moveCalendar(1)">›</button></div><div class="filters"><select id="calendarView" class="select" onchange="setCalendarView(this.value)"><option value="day">Jour</option><option value="week">Semaine</option><option value="month" selected>Mois</option></select><button class="btn" onclick="selectDate(new Date())">Aujourd'hui</button></div><div class="month" id="month"></div></div>
 <h2>Réunions</h2><div class="card" id="meetings"></div>
@@ -613,7 +613,7 @@ function fmt(n){return String(Math.floor(n)).padStart(2,'0')}
 function isoDate(d){return `${d.getFullYear()}-${fmt(d.getMonth()+1)}-${fmt(d.getDate())}`}
 function dateOnly(v){const [y,m,d]=v.split('-').map(Number);return new Date(y,m-1,d)}
 function sameDay(a,b){return isoDate(a)===isoDate(b)}
-function setClock(){const d=new Date();clock.textContent=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'PRIMARY_TIMEZONE'});clockMexico.textContent=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:'SECONDARY_TIMEZONE'});date.textContent=d.toLocaleDateString('fr-FR',{weekday:'long',day:'2-digit',month:'long',timeZone:'PRIMARY_TIMEZONE'});renderCalendar()}
+function setClock(){const d=new Date();clock.textContent=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:{{ homelab_dashboard_primary_timezone | to_json }}});clockSecondary.textContent=d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',timeZone:{{ homelab_dashboard_secondary_timezone | to_json }}});date.textContent=d.toLocaleDateString('fr-FR',{weekday:'long',day:'2-digit',month:'long',timeZone:{{ homelab_dashboard_primary_timezone | to_json }}});renderCalendar()}
 function selectDate(d){selectedDate=new Date(d.getFullYear(),d.getMonth(),d.getDate());calendarCursor=new Date(selectedDate);renderCalendar();renderMeetings();renderWeather(state.weather)}
 function setCalendarView(mode){calendarMode=mode;localStorage.setItem('calendarMode',mode);renderCalendar();renderMeetings();renderWeather(state.weather)}
 function moveCalendar(step){if(calendarMode==='month')calendarCursor=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth()+step,1);else{calendarCursor=new Date(calendarCursor.getFullYear(),calendarCursor.getMonth(),calendarCursor.getDate()+step*(calendarMode==='week'?7:1));if(calendarMode==='day')selectedDate=new Date(calendarCursor)}renderCalendar();renderMeetings();renderWeather(state.weather)}

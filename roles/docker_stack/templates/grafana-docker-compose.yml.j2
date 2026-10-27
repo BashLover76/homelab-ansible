@@ -15,7 +15,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
-      - GF_SECURITY_ADMIN_USER=homelab
+      - GF_SECURITY_ADMIN_USER={{ grafana_admin_user }}
       - GF_SECURITY_ADMIN_PASSWORD={{ homelab_admin_password }}
       # Permet l'affichage du tableau Grafana dans le widget iFrame Homarr.
       - GF_SECURITY_ALLOW_EMBEDDING=true

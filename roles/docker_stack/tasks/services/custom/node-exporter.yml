@@ -3,6 +3,6 @@
   ansible.builtin.file:
     path: '{{ stacks_base_path }}/node-exporter/textfile'
     state: directory
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0755'

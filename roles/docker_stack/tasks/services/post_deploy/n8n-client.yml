@@ -3,7 +3,7 @@
   ansible.builtin.file:
     path: "{{ n8n_volume_path }}/workflows"
     state: directory
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0750'
 
@@ -11,7 +11,7 @@
   ansible.builtin.template:
     src: n8n-container-updates-workflow.json.j2
     dest: "{{ n8n_volume_path }}/workflows/homelab-container-updates.json"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0640'
   no_log: true

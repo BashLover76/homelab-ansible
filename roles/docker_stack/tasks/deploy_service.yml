@@ -3,7 +3,7 @@
   ansible.builtin.template:
     src: "{{ item.name }}-docker-compose.yml.j2"
     dest: "{{ stacks_base_path }}/{{ item.name }}/docker-compose.yml"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0600'
   no_log: true

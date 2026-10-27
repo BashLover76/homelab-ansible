@@ -12,7 +12,7 @@
   ansible.builtin.template:
     src: homelab-updater.py.j2
     dest: "{{ stacks_base_path }}/homelab-updater/homelab-updater.py"
-    owner: homelab
+    owner: "{{ homelab_system_user }}"
     group: docker
     mode: '0750'
   no_log: true

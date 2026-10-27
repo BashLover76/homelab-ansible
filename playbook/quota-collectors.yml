@@ -51,7 +51,7 @@
       ansible.builtin.cron:
         name: Homelab Codex personal quota
         minute: '*/5'
-        job: "/usr/bin/flock -n /home/homelab/.homelab-quota.lock /usr/bin/python3 /opt/homelab/metrics/codex-quota.py --codex {{ codex_wsl.stdout | trim | quote }} --output /opt/homelab/node-exporter/textfile/codex.prom"
+        job: "/usr/bin/flock -n /home/{{ homelab_system_user }}/.homelab-quota.lock /usr/bin/python3 /opt/homelab/metrics/codex-quota.py --codex {{ codex_wsl.stdout | trim | quote }} --output /opt/homelab/node-exporter/textfile/codex.prom"
     - name: Installer le collecteur Copilot personnel
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../scripts/copilot-quota.py"
@@ -62,7 +62,7 @@
       ansible.builtin.copy:
         content: "{{ {'token': github_billing_token | default('')} | to_json }}"
         dest: /opt/homelab/metrics/github.json
-        owner: homelab
+        owner: "{{ homelab_system_user }}"
         mode: '0600'
       become: true
       no_log: true
@@ -74,4 +74,4 @@
       ansible.builtin.cron:
         name: Homelab Copilot personal quota
         minute: '17'
-        job: /usr/bin/flock -n /home/homelab/.homelab-copilot.lock /usr/bin/python3 /opt/homelab/metrics/copilot-quota.py --config /opt/homelab/metrics/github.json --output /opt/homelab/node-exporter/textfile/copilot.prom
+        job: /usr/bin/flock -n /home/{{ homelab_system_user }}/.homelab-copilot.lock /usr/bin/python3 /opt/homelab/metrics/copilot-quota.py --config /opt/homelab/metrics/github.json --output /opt/homelab/node-exporter/textfile/copilot.prom

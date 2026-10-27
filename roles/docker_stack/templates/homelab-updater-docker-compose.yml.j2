@@ -12,7 +12,7 @@ services:
     environment:
       PROMETHEUS_URL: http://{{ nas_ip }}:{{ prometheus_port }}
       UPDATE_TOKEN: {{ sandbox_runner_api_key | to_json }}
-      TZ: PRIMARY_TIMEZONE
+      TZ: "{{ homelab_timezone }}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - {{ stacks_base_path }}/homelab-updater:/app:ro

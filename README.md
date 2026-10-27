@@ -1,5 +1,7 @@
 # Homelab Ansible
 
+[Français](README.md) · [English](README.en.md)
+
 Déploiement et exploitation d'un homelab réparti sur deux machines :
 
 - un NAS Asustor pour les services permanents ;

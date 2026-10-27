@@ -9,10 +9,10 @@
         timeout: 10
         status_code: [200, 401, 403, 404]
       loop:
-        - http://NAS_IP:8123/api/
-        - http://NAS_IP:8030/control/status
-        - http://MINISFORUM_IP:11434/api/tags
-        - http://MINISFORUM_IP:3100/health
+        - http://{{ nas_ip }}:8123/api/
+        - http://{{ nas_ip }}:8030/control/status
+        - http://{{ ollama_windows_host }}:11434/api/tags
+        - http://{{ minisforum_host }}:3100/health
       register: endpoints
       failed_when: false
     - name: Lire les métriques WUD sans divulguer les identifiants
@@ -24,8 +24,8 @@
         return_content: true
         timeout: 10
       loop:
-        - NAS_IP:3050
-        - MINISFORUM_IP:3051
+        - "{{ nas_ip }}:3050"
+        - "{{ minisforum_host }}:3051"
       register: wud_audit
       failed_when: false
       no_log: true

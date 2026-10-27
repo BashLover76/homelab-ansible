@@ -57,7 +57,7 @@
           - wget
           - -qO-
           - --timeout=10
-          - http://MINISFORUM_IP:11434/api/tags
+          - http://{{ ollama_windows_host }}:11434/api/tags
       register: n8n_ollama
       changed_when: false
       failed_when: "'models' not in n8n_ollama.stdout"

@@ -220,7 +220,7 @@ Copilot utilise le jeton personnel `github_billing_token` avec permission utilis
 - `MonitoringTargetDown` : cible indisponible pendant 5 minutes.
 - `HostDiskAlmostFull` : moins de 10 % libres pendant 10 minutes, hors certains systèmes temporaires.
 
-Alertmanager groupe par `alertname` et `server`, attend 30 secondes, regroupe sur 5 minutes et répète après 24 heures. L'envoi à `ALERT_EMAIL` est **activé** ; les compteurs SMTP ont confirmé des envois sans erreur. La réception en boîte ou dans les spams reste à confirmer par l'utilisateur. L'alerte de test expire après trois minutes et peut générer un e-mail de résolution.
+Alertmanager groupe par `alertname` et `server`, attend 30 secondes, regroupe sur 5 minutes et répète après 24 heures. L'adresse de destination est fournie par le Vault via `alert_email_to` ; les compteurs SMTP ont confirmé des envois sans erreur. La réception en boîte ou dans les spams reste à confirmer par l'utilisateur. L'alerte de test expire après trois minutes et peut générer un e-mail de résolution.
 
 ### Dashboard homelab
 

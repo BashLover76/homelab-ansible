@@ -18,7 +18,7 @@ services:
       ADGUARD_URL: "http://{{ nas_ip }}:8030"
       ADGUARD_USERNAME: "{{ adguard_admin_username | default('homelab') }}"
       ADGUARD_PASSWORD: {{ adguard_admin_password | default('') | to_json }}
-      FREEBOX_URL: {{ freebox_base_url | default('http://FREEBOX_IP') | to_json }}
+      FREEBOX_URL: {{ freebox_base_url | default('http://{{ freebox_ip }}') | to_json }}
       FREEBOX_USERNAME: {{ freebox_username | default(freebox_user | default('')) | to_json }}
       FREEBOX_PASSWORD: {{ freebox_password | default('') | to_json }}
       FREEBOX_APP_TOKEN: {{ freebox_app_token | default('') | to_json }}

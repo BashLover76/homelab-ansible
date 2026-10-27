@@ -12,7 +12,7 @@
   tasks:
     - name: Lire la configuration existante
       ansible.builtin.uri:
-        url: http://NAS_IP:8030/control/dns_info
+        url: http://{{ nas_ip }}:8030/control/dns_info
       register: current_dns
       no_log: true
     - name: Créer le dossier de sauvegarde protégé
@@ -29,7 +29,7 @@
       no_log: true
     - name: Utiliser des DNS publics comme amonts AdGuard
       ansible.builtin.uri:
-        url: http://NAS_IP:8030/control/dns_config
+        url: http://{{ nas_ip }}:8030/control/dns_config
         method: POST
         body_format: json
         body:
@@ -39,13 +39,13 @@
       no_log: true
     - name: Vérifier la résolution publique via AdGuard
       ansible.builtin.command:
-        argv: [nslookup, example.com, NAS_IP]
+        argv: [nslookup, example.com, "{{ nas_ip }}"]
       register: adguard_probe
       changed_when: false
       failed_when: adguard_probe.rc != 0 or adguard_probe.stdout | trim | length == 0
     - name: Vérifier le sous-domaine local Grafana
       ansible.builtin.command:
-        argv: [nslookup, grafana.PUBLIC_DOMAIN, NAS_IP]
+        argv: [nslookup, "grafana.{{ basedomain }}", "{{ nas_ip }}"]
       register: local_dns_probe
       changed_when: false
-      failed_when: "'NAS_IP' not in local_dns_probe.stdout"
+      failed_when: "'{{ nas_ip }}' not in local_dns_probe.stdout"

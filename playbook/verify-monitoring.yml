@@ -40,5 +40,5 @@
       failed_when: metrics.json.data.result | length == 0
     - name: Vérifier Alertmanager
       ansible.builtin.uri:
-        url: http://NAS_IP:9093/-/ready
+        url: http://{{ nas_ip }}:9093/-/ready
         timeout: 10

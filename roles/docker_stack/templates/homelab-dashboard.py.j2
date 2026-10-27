@@ -13,14 +13,14 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://NAS_IP:9090").rstrip("/")
-ALERTMANAGER_URL = os.environ.get("ALERTMANAGER_URL", "http://NAS_IP:9093").rstrip("/")
-ADGUARD_URL = os.environ.get("ADGUARD_URL", "http://NAS_IP:8030").rstrip("/")
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://{{ nas_ip }}:9090").rstrip("/")
+ALERTMANAGER_URL = os.environ.get("ALERTMANAGER_URL", "http://{{ nas_ip }}:9093").rstrip("/")
+ADGUARD_URL = os.environ.get("ADGUARD_URL", "http://{{ nas_ip }}:8030").rstrip("/")
 ADGUARD_USERNAME = os.environ.get("ADGUARD_USERNAME", "")
 ADGUARD_PASSWORD = os.environ.get("ADGUARD_PASSWORD", "")
 GOOGLE_CALENDAR_ICAL_URL = os.environ.get("GOOGLE_CALENDAR_ICAL_URL", "")
 STREAMING_FEEDS_JSON = os.environ.get("STREAMING_FEEDS_JSON", "{}")
-FREEBOX_URL = os.environ.get("FREEBOX_URL", "http://FREEBOX_IP").rstrip("/")
+FREEBOX_URL = os.environ.get("FREEBOX_URL", "http://{{ freebox_ip }}").rstrip("/")
 FREEBOX_USERNAME = os.environ.get("FREEBOX_USERNAME", "")
 FREEBOX_PASSWORD = os.environ.get("FREEBOX_PASSWORD", "")
 FREEBOX_APP_TOKEN = os.environ.get("FREEBOX_APP_TOKEN", "")
@@ -37,18 +37,18 @@ BETASERIES_LOGIN = os.environ.get("BETASERIES_LOGIN", "")
 CACHE_DIR = Path("/cache")
 
 TOOLS = [
-    ("Homarr", "🏠", "http://homarr.PUBLIC_DOMAIN/"),
-    ("Grafana", "📊", "http://grafana.PUBLIC_DOMAIN/"),
-    ("Prometheus", "🔥", "http://prometheus.PUBLIC_DOMAIN/"),
-    ("Alertmanager", "🚨", "http://alertmanager.PUBLIC_DOMAIN/"),
-    ("WUD", "🐳", "http://wud.PUBLIC_DOMAIN/"),
-    ("AdGuard", "🧱", "http://adguard.PUBLIC_DOMAIN/"),
-    ("NPM", "🔐", "http://npm.PUBLIC_DOMAIN/"),
-    ("Home Assistant", "💡", "http://homeassistant.PUBLIC_DOMAIN/"),
-    ("Open WebUI", "🤖", "http://open-webui.PUBLIC_DOMAIN/"),
-    ("n8n", "🔀", "http://NAS_IP:5678/"),
-    ("Ollama", "🦙", "http://MINISFORUM_IP:11434/"),
-    ("NAS", "💾", "http://NAS_IP:8000/"),
+    ("Homarr", "🏠", "http://homarr.{{ basedomain }}/"),
+    ("Grafana", "📊", "http://grafana.{{ basedomain }}/"),
+    ("Prometheus", "🔥", "http://prometheus.{{ basedomain }}/"),
+    ("Alertmanager", "🚨", "http://alertmanager.{{ basedomain }}/"),
+    ("WUD", "🐳", "http://wud.{{ basedomain }}/"),
+    ("AdGuard", "🧱", "http://adguard.{{ basedomain }}/"),
+    ("NPM", "🔐", "http://npm.{{ basedomain }}/"),
+    ("Home Assistant", "💡", "http://homeassistant.{{ basedomain }}/"),
+    ("Open WebUI", "🤖", "http://open-webui.{{ basedomain }}/"),
+    ("n8n", "🔀", "http://{{ nas_ip }}:5678/"),
+    ("Ollama", "🦙", "http://{{ ollama_windows_host }}:11434/"),
+    ("NAS", "💾", "http://{{ nas_ip }}:8000/"),
     ("Freebox", "📡", "http://mafreebox.freebox.fr/"),
     ("Google Calendar", "📅", "https://calendar.google.com/"),
     ("Streaming", "🎬", "#streaming"),

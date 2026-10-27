@@ -5,7 +5,7 @@
   tasks:
     - name: Lire le compteur initial d'envois
       ansible.builtin.uri:
-        url: http://NAS_IP:9093/metrics
+        url: http://{{ nas_ip }}:9093/metrics
         return_content: true
       register: before
     - name: Retenir le compteur e-mail
@@ -14,7 +14,7 @@
           {{ (before.content | regex_findall('alertmanager_notifications_total\{integration="email"\} ([0-9.e+]+)') | first | default('0')) | float }}
     - name: Soumettre une alerte de test expirant dans trois minutes
       ansible.builtin.uri:
-        url: http://NAS_IP:9093/api/v2/alerts
+        url: http://{{ nas_ip }}:9093/api/v2/alerts
         method: POST
         body_format: json
         status_code: 200
@@ -33,7 +33,7 @@
       changed_when: true
     - name: Attendre une remise SMTP réussie
       ansible.builtin.uri:
-        url: http://NAS_IP:9093/metrics
+        url: http://{{ nas_ip }}:9093/metrics
         return_content: true
       register: after
       until: (after.content | regex_findall('alertmanager_notifications_total\{integration="email"\} ([0-9.e+]+)') | first | default('0') | float) > (emails_before | float)

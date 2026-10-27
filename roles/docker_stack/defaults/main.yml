@@ -1,10 +1,6 @@
 ---
 # --- Réseau & Hôtes ---
-nas_ip: "NAS_IP"
-minisforum_host: "MINISFORUM_IP"
-ollama_windows_host: "MINISFORUM_IP"
 alertmanager_port: "9093"
-alert_email_to: "ALERT_EMAIL"
 alert_email_enabled: false
 # --- Ports des services ---
 homarr_port: "7575"
@@ -48,7 +44,6 @@ homelab_dashboard_betaseries_api_key: ""
 homelab_dashboard_betaseries_token: ""
 homelab_dashboard_betaseries_user_id: ""
 homelab_dashboard_betaseries_login: ""
-freebox_ip: "FREEBOX_IP"
 freebox_base_url: "http://{{ freebox_ip }}"
 freebox_username: ""
 freebox_password: ""

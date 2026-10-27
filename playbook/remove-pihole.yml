@@ -41,7 +41,7 @@
 
     - name: Identifier le proxy Pi-hole
       ansible.builtin.set_fact:
-        pihole_proxy: "{{ npm_hosts.json | selectattr('domain_names', 'contains', 'pihole.PUBLIC_DOMAIN') | list | first | default({}) }}"
+        pihole_proxy: "{{ npm_hosts.json | selectattr('domain_names', 'contains', 'pihole.{{ basedomain }}') | list | first | default({}) }}"
       no_log: true
 
     - name: Supprimer le proxy NPM Pi-hole

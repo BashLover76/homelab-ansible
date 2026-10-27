@@ -84,7 +84,7 @@
       register: candidate_dir
     - name: Lire les silences de production avant migration
       ansible.builtin.uri:
-        url: http://NAS_IP:9093/api/v2/silences
+        url: http://{{ nas_ip }}:9093/api/v2/silences
         timeout: 10
       register: original_silences
       no_log: true
@@ -160,7 +160,7 @@
             dest: '{{ compose_dir }}/docker-compose.yml'
             mode: '0600'
           vars:
-            nas_ip: NAS_IP
+            nas_ip: "{{ nas_ip }}"
             alertmanager_port: '9093'
             alertmanager_image: '{{ tested_image }}'
             alertmanager_data_source: '{{ candidate_dir.path }}/data'
@@ -171,7 +171,7 @@
             pull: never
         - name: Vérifier la production promue
           ansible.builtin.uri:
-            url: http://NAS_IP:9093/-/ready
+            url: http://{{ nas_ip }}:9093/-/ready
             timeout: 5
           register: production_health
           retries: 12

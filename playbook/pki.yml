@@ -41,8 +41,8 @@
       community.crypto.openssl_csr:
         path: "{{ pki_dir }}/homelab.csr"
         privatekey_path: "{{ pki_dir }}/homelab.key"
-        common_name: '*.PUBLIC_DOMAIN'
-        subject_alt_name: ['DNS:*.PUBLIC_DOMAIN', 'DNS:PUBLIC_DOMAIN']
+        common_name: '*.{{ basedomain }}'
+        subject_alt_name: ['DNS:*.{{ basedomain }}', 'DNS:{{ basedomain }}']
         basic_constraints: ['CA:FALSE']
         extended_key_usage: [serverAuth]
         key_usage: [digitalSignature, keyEncipherment]

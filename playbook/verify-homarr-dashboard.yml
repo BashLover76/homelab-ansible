@@ -5,7 +5,7 @@
   tasks:
     - name: Lire l'API du dashboard
       ansible.builtin.uri:
-        url: http://dashboard.PUBLIC_DOMAIN/api/dashboard?force=1
+        url: http://dashboard.{{ basedomain }}/api/dashboard?force=1
         timeout: 25
         status_code: 200
         return_content: true
@@ -34,15 +34,15 @@
 
     - name: Vérifier la route NPM HTTP
       ansible.builtin.uri:
-        url: http://NAS_IP/
+        url: http://{{ nas_ip }}/
         headers:
-          Host: dashboard.PUBLIC_DOMAIN
+          Host: dashboard.{{ basedomain }}
         timeout: 10
         status_code: 200
       delegate_to: localhost
 
     - name: Vérifier l'endpoint direct Minisforum
       ansible.builtin.uri:
-        url: http://MINISFORUM_IP:8780/api/dashboard
+        url: http://{{ minisforum_host }}:8780/api/dashboard
         timeout: 10
         status_code: 200

@@ -1,5 +1,8 @@
 # --- Ansible Secrets & Inventory (Sensibles) ---
 .vault_password
+.env
+.env.*
+!.env.example
 inventory.yml
 group_vars/*/vault
 group_vars/*/*.vault

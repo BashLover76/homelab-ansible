@@ -4,16 +4,16 @@
   gather_facts: false
   vars:
     proxy_services:
-      - {name: grafana, host: 'NAS_IP', port: 3000}
-      - {name: homarr, host: 'NAS_IP', port: 7575}
-      - {name: dashboard, host: 'MINISFORUM_IP', port: 8780}
-      - {name: prometheus, host: 'NAS_IP', port: 9090}
-      - {name: wud, host: 'NAS_IP', port: 3050}
-      - {name: npm, host: 'NAS_IP', port: 81}
-      - {name: open-webui, host: 'MINISFORUM_IP', port: 3100}
-      - {name: adguard, host: 'NAS_IP', port: 8030}
-      - {name: homeassistant, host: 'NAS_IP', port: 8123}
-      - {name: alertmanager, host: 'NAS_IP', port: 9093}
+      - {name: grafana, host: '{{ nas_ip }}', port: 3000}
+      - {name: homarr, host: '{{ nas_ip }}', port: 7575}
+      - {name: dashboard, host: '{{ minisforum_host }}', port: 8780}
+      - {name: prometheus, host: '{{ nas_ip }}', port: 9090}
+      - {name: wud, host: '{{ nas_ip }}', port: 3050}
+      - {name: npm, host: '{{ nas_ip }}', port: 81}
+      - {name: open-webui, host: '{{ minisforum_host }}', port: 3100}
+      - {name: adguard, host: '{{ nas_ip }}', port: 8030}
+      - {name: homeassistant, host: '{{ nas_ip }}', port: 8123}
+      - {name: alertmanager, host: '{{ nas_ip }}', port: 9093}
   tasks:
     - name: Appliquer le proxy géré
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/docker_stack/tasks/configure_proxy_managed.yml"
@@ -21,6 +21,6 @@
       loop_control:
         loop_var: proxy_service
       vars:
-        service_domain: "{{ proxy_service.name }}.PUBLIC_DOMAIN"
+        service_domain: "{{ proxy_service.name }}.{{ basedomain }}"
         service_forward_host: "{{ proxy_service.host }}"
         service_forward_port: "{{ proxy_service.port }}"
